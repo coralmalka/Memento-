@@ -787,11 +787,15 @@ export default function App() {
       {tab === 'reposts' && <>
         <Text style={styles.pageTitle}>My reposts</Text>
         <Text style={styles.pageSubtitle}>Posts you've reposted from other people.</Text>
-        {!posts.some(p=>p.author_id===me && p.repost_of && !p.archived) && <Text style={styles.note}>No reposts yet. Tap repost on another member's post to see it here.</Text>}
+        {!posts.some(p=>p.author_id===me && p.repost_of && !p.archived) && !archive.some(st=>st.author_id===me && (st.caption||'').startsWith('Reposted from @')) && <Text style={styles.note}>No reposts yet. Tap repost on another member's post to see it here.</Text>}
         {posts.filter(p=>p.author_id===me && p.repost_of && !p.archived).map(p=><View key={p.id} style={styles.post}>
           <View style={styles.postHeading}><Ionicons name="repeat-outline" size={23} color="#252933"/><Text style={styles.postHandle}>Reposted by you</Text><TouchableOpacity onPress={()=>postOptions(p)}><Ionicons name="ellipsis-horizontal" size={22} color="#444"/></TouchableOpacity></View>
           <OriginalFrame uri={p.image_url}/><HashtagText style={styles.caption} onHashtag={searchTag}>{p.caption}</HashtagText><MusicDisplay item={p}/>
         </View>)}
+        {archive.filter(st=>st.author_id===me && (st.caption||'').startsWith('Reposted from @')).map(st=><TouchableOpacity key={st.id} style={styles.post} onPress={()=>setViewer({story:st,own:true})}>
+          <View style={styles.postHeading}><MementoHeaderGlyph kind="repost" size={25}/><Text style={styles.postHandle}>Your reposted story</Text></View>
+          <OriginalFrame uri={st.image_url}/><HashtagText style={styles.caption} onHashtag={searchTag}>{st.caption}</HashtagText>
+        </TouchableOpacity>)}
       </>}
       {tab === 'activity' && <>
         <Text style={styles.pageTitle}>Activity</Text>
