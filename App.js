@@ -17,6 +17,9 @@ import { File } from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { chooseOriginalAudio, uploadOriginalAudio, signedAudio, trackMetadata, providerFor, searchAppleCatalog } from './lib/music';
 import ProfileEditor from './components/ProfileEditor';
+import AccountSettings from './components/AccountSettings';
+import ShareComposer from './components/ShareComposer';
+import ContentInsights from './components/ContentInsights';
 
 const RED = '#E4384F';
 // Original scalable Memento header glyphs based on the provided icon references.
@@ -61,26 +64,7 @@ function StickerPicker({ onPick }) {
     )}</View>}
   </View>;
 }
-// Memento talks trash. These are product copy, never sent as messages from another user.
-// Owner-supplied lines are kept verbatim, including punctuation and lack of emojis.
-const ROAST_LINES = {
-  home: ['go post sum instead of lurking', 'u scrolling like its a full time job', 'bro been on here for a minute'],
-  inbox: ['damn lol nobody likes u', 'checking ur dms like a paycheck gonna hit', 'this inbox quiet as hell'],
-  chat: ['i promise u nobody tryna hear all that go make money', 'u better not be typing a whole autobiography', 'say something interesting for once'],
-  activity: ['not a single soul thought of u today', 'whole lotta nothing going on'],
-  explore: ['who tf are u looking for', 'bro searching like the answers in here'],
-  profile: ['bro is a government mystery', 'ur fanbase is currently imaginary', 'looking at ur own profile again is crazy'],
-  story: ['ayo damn u pussy post sum', 'u gonna post or just stare at the screen'],
-  create: ['i promise u nobody tryna hear all that go make money', 'alright influencer lets see it'],
-  paragraph: ['i promise u nobody tryna hear all that go make money'],
-};
-const COMEBACK_LINE = 'oh look who decided to come back u vagina';
-const INACTIVITY_LINE = 'ayo damn u pussy post sum';
 const DAY_MS = 24 * 60 * 60 * 1000;
-const pickRoast = (name) => {
-  const pool = ROAST_LINES[name] || ROAST_LINES.home;
-  return pool[Math.floor(Math.random() * pool.length)];
-};
 Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: true }) });
 const Button = ({ title, onPress, secondary, disabled }) => <TouchableOpacity disabled={disabled} onPress={onPress} style={[styles.button, secondary && styles.secondary, disabled && { opacity: .5 }]}><Text style={[styles.buttonText, secondary && { color: '#202020' }]}>{title}</Text></TouchableOpacity>;
 const Photo = ({ uri, style }) => uri ? <Image source={{ uri }} style={style} resizeMode="cover" /> : <View style={[style, { backgroundColor: '#e8e5e1' }]} />;
@@ -261,7 +245,14 @@ export default function App() {
   const [likedPosts, setLikedPosts] = useState({});
   const [likes, setLikes] = useState([]); const [comments, setComments] = useState([]);
   const [commenting, setCommenting] = useState(null); const [commentDraft, setCommentDraft] = useState('');
-  const [sharePost, setSharePost] = useState(null); const [shareDestination, setShareDestination] = useState('memento');
+  const [shareTarget, setShareTarget] = useState(null);
+  const [insightsTarget, setInsightsTarget] = useState(null);
+  const [selectedPostId, setSelectedPostId] = useState(null);
+  const [storyReplyDraft, setStoryReplyDraft] = useState('');
+  const [contentShares, setContentShares] = useState([]);
+  const [storyLikes, setStoryLikes] = useState([]);
+  const [storyViews, setStoryViews] = useState([]);
+  const [accountSettingRows, setAccountSettingRows] = useState([]);
   const [postMusic, setPostMusic] = useState({mode:'none'}); const [storyMusic, setStoryMusic] = useState({mode:'none'});
   const [locationLabel, setLocationLabel] = useState(''); const [storyLocationLabel, setStoryLocationLabel] = useState('');
   const [editingLocationPost, setEditingLocationPost] = useState(null); const [locationDraft, setLocationDraft] = useState('');
@@ -270,45 +261,27 @@ export default function App() {
   const [activity, setActivity] = useState([]); const [directMessages, setDirectMessages] = useState([]);
   const [dmPerson, setDmPerson] = useState(null); const [dmDraft, setDmDraft] = useState('');
   const [notificationError, setNotificationError] = useState('');
-  const [roastPopup, setRoastPopup] = useState(null);
-  const [dmInboxRoast, setDmInboxRoast] = useState(null);
-  const [dmChatRoast, setDmChatRoast] = useState(null);
   const [feedReady, setFeedReady] = useState(false);
   const [permissionRevision, setPermissionRevision] = useState(0);
-  const roastTimeoutRef = useRef(null);
-  const lastRoastRef = useRef(0);
-  const inactivitySeenRef = useRef(null);
   const scheduledKeyRef = useRef(null);
 
   const me = session?.user?.id; const mine = profiles.find(p => p.id === me);
   const profileId = seenProfile || me; const profile = profiles.find(p => p.id === profileId);
 
-  const showRoast = (line, forced = false) => {
-    if (!forced && Date.now() - lastRoastRef.current < 16000) return;
-    lastRoastRef.current = Date.now();
-    if (roastTimeoutRef.current) clearTimeout(roastTimeoutRef.current);
-    setRoastPopup({
-      line,
-      corner: ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'][Math.floor(Math.random() * 4)],
-    });
-    roastTimeoutRef.current = setTimeout(() => setRoastPopup(null), 5300);
-  };
-  const maybeRoast = (where, chance = 0.42) => {
-    if (Math.random() < chance) showRoast(pickRoast(where));
-  };
-  const goTab = (name) => {
+  const goTab = name => {
     setTab(name);
     if (name === 'profile') setSeenProfile(me);
-    if (name === 'inbox') {
-      setDmPerson(null);
-      setDmInboxRoast(Math.random() < 0.75 ? pickRoast('inbox') : null);
-    }
-    maybeRoast(name, name === 'inbox' ? 0.25 : 0.42);
+    if (name === 'inbox') setDmPerson(null);
   };
   const openChat = id => {
     setVoiceDraftUri(null);
     setDmPerson(id);
-    setDmChatRoast(Math.random() < 0.78 ? pickRoast('chat') : null);
+    setTab('inbox');
+  };
+  const openPostDetail = id => {
+    setSelectedPostId(id);
+    setShareTarget(null);
+    setTab('postDetail');
   };
   const latestPublicPostAt = () => Math.max(0,
     ...posts.filter(p => p.author_id === me).map(p => Date.parse(p.created_at) || 0),
@@ -318,7 +291,6 @@ export default function App() {
     const latest = latestPublicPostAt();
     return !!latest && (Date.now() - latest) >= 7 * DAY_MS;
   };
-  useEffect(() => () => { if (roastTimeoutRef.current) clearTimeout(roastTimeoutRef.current); }, []);
   useEffect(() => {
     const sub = AppState.addEventListener('change', async state => {
       if (state === 'active') {
@@ -405,7 +377,7 @@ export default function App() {
   useEffect(() => {
     setFeedReady(false);
     if (me) load();
-    else { setPosts([]); setArchive([]); setCollections([]); setSeenProfile(null); setRoastPopup(null); }
+    else { setPosts([]); setArchive([]); setCollections([]); setSeenProfile(null); setContentShares([]); setStoryLikes([]); setStoryViews([]); setAccountSettingRows([]); }
   }, [me, load]);
   useEffect(() => { if (!me) return; const timer = setInterval(load, 15000); return () => clearInterval(timer); }, [me, load]);
   useEffect(() => {
@@ -416,52 +388,6 @@ export default function App() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [me, load]);
-  // One local notification, five days after the last public post or story.
-  // The operating system must already have granted notification permission.
-  // For server-driven notifications across devices a separate scheduled backend is needed.
-  const lastPublicStamp = feedReady && me && mine ? (latestPublicPostAt() || Date.parse(mine.created_at) || 0) : 0;
-  useEffect(() => {
-    if (!me || !feedReady || !lastPublicStamp || Platform.OS === 'web') return;
-    const key = `${me}:${lastPublicStamp}:${permissionRevision}`;
-    if (scheduledKeyRef.current === key) return;
-    scheduledKeyRef.current = key;
-    let cancelled = false;
-    (async () => {
-      try {
-        const permission = await Notifications.getPermissionsAsync();
-        if (!permission.granted) return;
-        const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-        const reminderKey = `${me}:${lastPublicStamp}`;
-        for (const item of scheduled) {
-          if (item.content?.data?.mementoKind === 'inactivity' && item.content.data.reminderKey !== reminderKey) {
-            await Notifications.cancelScheduledNotificationAsync(item.identifier);
-          }
-        }
-        if (cancelled) return;
-        const alreadyScheduled = scheduled.some(item => item.content?.data?.reminderKey === reminderKey);
-        const when = lastPublicStamp + 5 * DAY_MS;
-        if (!alreadyScheduled && when > Date.now() + 60000) {
-          await Notifications.scheduleNotificationAsync({
-            content: { title: 'memento', body: INACTIVITY_LINE,
-              data: { mementoKind: 'inactivity', reminderKey } },
-            trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(when) },
-          });
-        }
-      } catch (e) { console.warn('Memento local reminder unavailable:', e?.message || e); }
-    })();
-    return () => { cancelled = true; };
-  }, [me, feedReady, lastPublicStamp, permissionRevision]);
-
-  useEffect(() => {
-    if (!me || !feedReady || !mine || !lastPublicStamp || inactivitySeenRef.current === me) return;
-    inactivitySeenRef.current = me;
-    if (Date.now() - lastPublicStamp >= 5 * DAY_MS) {
-      // Appears once per app session on return, not every 15-second refresh.
-      const timer = setTimeout(() => showRoast(INACTIVITY_LINE, true), 900);
-      return () => clearTimeout(timer);
-    }
-  }, [me, feedReady, mine?.id, lastPublicStamp]);
-
   async function enablePush() {
     try {
       if (Platform.OS === 'web') throw Error('Push alerts require the iOS or Android app.');
@@ -562,21 +488,19 @@ export default function App() {
     return {music_url:selected.url.trim(),music_provider:mode,music_title:selected.title?.trim()||null,music_artist:selected.artist?.trim()||null,original_audio_path:null};
   }
 
-  async function publishPost() { const comeback = returningAfterBreak(); await run(async () => {
+  async function publishPost() { await run(async () => {
     const music = await musicFields(postMusic);
     const path = await imagePath(photoUri);
     await table('posts', { author_id: me, image_path: path, caption: caption.trim(), ...music, location_label: locationOn ? (locationLabel.trim() || null) : null });
     setCaption(''); setPhotoUri(null); setPostMusic({mode:'none'}); setLocationLabel(''); setLocationOn(false); setTab('home');
-    if (comeback) showRoast(COMEBACK_LINE, true);
     if (publishTo !== 'memento') Alert.alert('Saved to Memento', 'This post is saved on Memento. External sharing must be completed through the destination app; it was not automatically published there.');
   }); }
-  async function saveStory(published) { const comeback = published && returningAfterBreak(); await run(async () => {
+  async function saveStory(published) { await run(async () => {
     const music = await musicFields(storyMusic);
     const path = await imagePath(storyPhoto);
     await table('stories', { author_id: me, image_path: path, caption: storyCaption.trim(), published_at: published ? new Date().toISOString() : null, expires_at: published ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null, ...music, location_label: storyLocationOn ? (storyLocationLabel.trim() || null) : null });
     setStoryPhoto(null); setStoryCaption(''); setStoryMusic({mode:'none'}); setStoryLocationLabel(''); setStoryLocationOn(false); setTab('profile'); setSeenProfile(me);
-    if (comeback) showRoast(COMEBACK_LINE, true);
-    else Alert.alert(published ? 'Story published' : 'Story archived', published ? 'Visible to signed-in members for 24 hours. Also saved in your private archive.' : 'Only you can see this until you publish it or add it to a public collection.');
+    Alert.alert(published ? 'Story published' : 'Story archived', published ? 'Visible to signed-in members for 24 hours. Also saved in your private archive.' : 'Only you can see this until you publish it or add it to a public collection.');
   }); }
   async function follow(id) { await run(async () => {
     const old = follows.some(f => f.followed_id === id);
@@ -762,7 +686,7 @@ export default function App() {
           </TouchableOpacity>
           {relevantStories.map(s => <TouchableOpacity key={s.id} onPress={() => setViewer({story:s})} style={styles.storyChip}><View style={styles.storyRing}><Photo uri={s.image_url} style={styles.storyPhoto}/></View><Text numberOfLines={1} style={styles.storyLabel}>{username(profiles.find(p => p.id === s.author_id))}</Text></TouchableOpacity>)}
         </ScrollView>
-        {feed.length === 0 && <View style={styles.emptyState}><Text style={styles.emptyIcon}>▧</Text><Text style={styles.emptyTitle}>bro is a government mystery</Text><Text style={styles.emptyDescription}>Follow people in Explore or share your first photo to start making memories.</Text><TouchableOpacity style={styles.primaryPill} onPress={() => goTab('explore')}><Text style={styles.primaryPillText}>Find people</Text></TouchableOpacity></View>}
+        {feed.length === 0 && <View style={styles.emptyState}><Text style={styles.emptyIcon}>▧</Text><Text style={styles.emptyTitle}>No posts yet</Text><Text style={styles.emptyDescription}>Follow people in Explore or share your first photo to start making memories.</Text><TouchableOpacity style={styles.primaryPill} onPress={() => goTab('explore')}><Text style={styles.primaryPillText}>Find people</Text></TouchableOpacity></View>}
         {feed.map(p => <View key={p.id} style={styles.post}>
           <TouchableOpacity onPress={() => navigateProfile(p.author_id)} style={styles.postHeading}><ProfileThumb person={profiles.find(x=>x.id===p.author_id)}/><Text style={styles.postHandle}>{username(profiles.find(x => x.id === p.author_id))}</Text>{p.author_id===me && <TouchableOpacity onPress={()=>postOptions(p)}><Text style={styles.postMore}>···</Text></TouchableOpacity>}</TouchableOpacity>
           <OriginalFrame uri={p.image_url}/>
@@ -837,23 +761,21 @@ export default function App() {
       {tab === 'activity' && <>
         <Text style={styles.pageTitle}>Activity</Text>
         <Text style={styles.pageSubtitle}>Messages, mentions, likes, comments, follows and reposts.</Text>
-        {activity.length === 0 ? <View style={styles.dmEmpty}><Text style={styles.dmEmptyIcon}>♡</Text><Text style={styles.dmEmptyTitle}>not a single soul thought of u today</Text><Text style={styles.dmEmptyDescription}>When someone interacts with you, it will show up here.</Text></View> : activity.map(n => <TouchableOpacity key={n.id} style={[styles.personRow, !n.read_at && {backgroundColor:'#FFF3F5'}]} onPress={()=>openNotification(n)}><ProfileThumb person={profiles.find(p=>p.id===n.actor_id)}/><View style={{flex:1}}><Text style={styles.personName}>@{username(profiles.find(p=>p.id===n.actor_id))}</Text><Text style={styles.personBio}>{n.body}</Text><Text style={styles.tiny}>{new Date(n.created_at).toLocaleString()}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>)}
+        {activity.length === 0 ? <View style={styles.dmEmpty}><Text style={styles.dmEmptyIcon}>♡</Text><Text style={styles.dmEmptyTitle}>No activity yet</Text><Text style={styles.dmEmptyDescription}>When someone interacts with you, it will show up here.</Text></View> : activity.map(n => <TouchableOpacity key={n.id} style={[styles.personRow, !n.read_at && {backgroundColor:'#FFF3F5'}]} onPress={()=>openNotification(n)}><ProfileThumb person={profiles.find(p=>p.id===n.actor_id)}/><View style={{flex:1}}><Text style={styles.personName}>@{username(profiles.find(p=>p.id===n.actor_id))}</Text><Text style={styles.personBio}>{n.body}</Text><Text style={styles.tiny}>{new Date(n.created_at).toLocaleString()}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>)}
       </>}
       {tab === 'inbox' && <>
         <Text style={styles.pageTitle}>{dmPerson ? `@${username(profiles.find(p=>p.id===dmPerson))}` : 'Messages'}</Text>
         {dmPerson ? <>
-          <Mini onPress={()=>{setDmPerson(null);setDmChatRoast(null);}}>← All messages</Mini>
-          {!!dmChatRoast && <View style={styles.roastInline}><Text style={styles.roastInlineLabel}>memento said</Text><Text style={styles.roastInlineText}>{dmChatRoast}</Text></View>}
+          <Mini onPress={()=>setDmPerson(null)}>← All messages</Mini>
           {directMessages.filter(m=>(m.sender_id===me&&m.recipient_id===dmPerson)||(m.sender_id===dmPerson&&m.recipient_id===me)).slice().reverse().map(m=><View key={m.id} style={[styles.dmMessage, m.sender_id===me && styles.dmMine]}>{m.audio_path ? <><Text style={styles.dmText}>🎤 Voice note</Text>{voiceUrls[m.id] ? <AudioPreview uri={voiceUrls[m.id]}/> : <Text style={styles.tiny}>Loading audio…</Text>}</> : <Text style={styles.dmText}>{m.body}</Text>}<Text style={styles.dmTime}>{new Date(m.created_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</Text></View>)}
-          <TextInput style={styles.field} value={dmDraft} onChangeText={value=>{if(dmDraft.length<=280 && value.length>280) maybeRoast('paragraph', .9);setDmDraft(value);}} placeholder="Write a message..." maxLength={2000} multiline/>
+          <TextInput style={styles.field} value={dmDraft} onChangeText={setDmDraft} placeholder="Write a message..." maxLength={2000} multiline/>
           <Button title="Send message" onPress={sendDM} disabled={!dmDraft.trim()||busy}/>
            <View style={styles.voiceControls}>
              <TouchableOpacity onPress={voiceStatus.isRecording ? finishVoiceNote : beginVoiceNote} disabled={voiceSending} accessibilityRole="button" accessibilityLabel={voiceStatus.isRecording?'Stop voice recording':'Start voice recording'} style={styles.voiceAction}><Ionicons name={voiceStatus.isRecording?'stop-circle':'mic-outline'} size={23} color={voiceStatus.isRecording?RED:'#252933'}/><Text style={styles.voiceText}>{voiceStatus.isRecording ? `Stop · ${Math.round((voiceStatus.durationMillis||0)/1000)}s` : 'Record voice note'}</Text></TouchableOpacity>
              {voiceDraftUri && !voiceStatus.isRecording && <><AudioPreview uri={voiceDraftUri}/><TouchableOpacity onPress={sendVoiceNote} disabled={voiceSending} style={styles.voiceAction}><Ionicons name="send" size={21} color={RED}/><Text style={styles.voiceText}>{voiceSending?'Sending…':'Send voice note'}</Text></TouchableOpacity><TouchableOpacity onPress={()=>setVoiceDraftUri(null)} style={styles.voiceAction}><Text style={styles.voiceText}>Discard recording</Text></TouchableOpacity></>}
            </View>
         </> : <>
-          {directMessages.length>0 && !!dmInboxRoast && <View style={styles.roastInline}><Text style={styles.roastInlineLabel}>memento said</Text><Text style={styles.roastInlineText}>{dmInboxRoast}</Text></View>}
-          {directMessages.length===0 && <View style={styles.dmEmpty}><Text style={styles.dmEmptyIcon}>✉</Text><Text style={styles.dmEmptyTitle}>damn lol nobody likes u</Text><Text style={styles.dmEmptyDescription}>0 friends. 0 messages. crazy work.</Text></View>}
+          {directMessages.length===0 && <View style={styles.dmEmpty}><Text style={styles.dmEmptyIcon}>✉</Text><Text style={styles.dmEmptyTitle}>No messages yet</Text><Text style={styles.dmEmptyDescription}>Start a conversation with another member.</Text></View>}
           {[...new Set(directMessages.map(m => m.sender_id===me?m.recipient_id:m.sender_id))].map(id=>{const latest=directMessages.find(m=>m.sender_id===id||m.recipient_id===id);return <TouchableOpacity key={id} style={styles.personRow} onPress={()=>openChat(id)}><ProfileThumb person={profiles.find(p=>p.id===id)}/><View style={{flex:1}}><Text style={styles.personName}>@{username(profiles.find(p=>p.id===id))}</Text><Text style={styles.personBio} numberOfLines={1}>{latest?.body}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>})}
           <Text style={styles.section}>Start a message</Text>
           {profiles.filter(p=>p.id!==me).map(p=><TouchableOpacity key={p.id} style={styles.personRow} onPress={()=>openChat(p.id)}><Text style={styles.personName}>@{username(p)}</Text><Text style={styles.disclosure}>›</Text></TouchableOpacity>)}
@@ -863,7 +785,6 @@ export default function App() {
         <Text style={styles.pageTitle}>Explore</Text><Text style={styles.pageSubtitle}>Find people and discover memories.</Text>
         <TextInput style={styles.field} value={search} onChangeText={setSearch} placeholder="Search people or #memories" placeholderTextColor="#A0A4AE" autoCapitalize="none"/>
         <View style={styles.segmentRow}><TouchableOpacity style={[styles.segment,searchType==='people' && styles.segmentActive]} onPress={()=>setSearchType('people')}><Text style={[styles.segmentText,searchType==='people' && styles.segmentTextActive]}>People</Text></TouchableOpacity><TouchableOpacity style={[styles.segment,searchType==='tags' && styles.segmentActive]} onPress={()=>{setSearchType('tags');setSearch(search.replace(/^#/,''));}}><Text style={[styles.segmentText,searchType==='tags' && styles.segmentTextActive]}>Hashtags</Text></TouchableOpacity></View>
-        {searchType==='people' && search.trim().length>=2 && !profiles.some(x=>x.id!==me && (x.username||'').toLowerCase().includes(search.toLowerCase())) && <View style={styles.roastInline}><Text style={styles.roastInlineText}>who tf are u looking for</Text></View>}
         {searchType==='people' ? profiles.filter(x => (x.username || '').toLowerCase().includes(search.toLowerCase()) && x.id!==me).map(p => <TouchableOpacity key={p.id} style={styles.personRow} onPress={()=>navigateProfile(p.id)}><ProfileThumb person={p}/><View style={{flex:1}}><Text style={styles.personName}>@{username(p)}</Text><Text style={styles.personBio} numberOfLines={1}>{p.bio || 'Memento member'}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>) : <>
           <Text style={styles.note}>Posts tagged #{search.replace(/^#/, '')}</Text>
           {posts.filter(p => !p.archived && search && findHashtag(p.caption,search.replace(/^#/,'').toLowerCase())).map(p=><TouchableOpacity key={p.id} style={styles.post} onPress={()=>navigateProfile(p.author_id)}><OriginalFrame uri={p.image_url}/><HashtagText style={styles.caption} onHashtag={searchTag}>{p.caption}</HashtagText></TouchableOpacity>)}
@@ -873,7 +794,7 @@ export default function App() {
         <Text style={styles.pageTitle}>New post</Text><Text style={styles.pageSubtitle}>Share a moment worth keeping.</Text>
         <TouchableOpacity onPress={()=>selectPhoto(setPhotoUri)} style={styles.uploadCard}>{photoUri ? <OriginalFrame uri={photoUri}/> : <View style={styles.uploadPreview}/>}{!photoUri && <View style={styles.uploadOverlay}><Text style={styles.uploadIcon}>＋</Text><Text style={styles.uploadHeading}>Choose a photo</Text><Text style={styles.uploadHelp}>Tap to open your photo library</Text></View>}</TouchableOpacity>
         <View style={styles.mediaActions}><TouchableOpacity onPress={()=>openCamera('post')} style={styles.mediaAction}><Ionicons name="camera-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Camera</Text></TouchableOpacity><TouchableOpacity onPress={()=>selectPhoto(setPhotoUri)} style={styles.mediaAction}><Ionicons name="images-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Photo library</Text></TouchableOpacity></View>
-        <TextInput value={caption} onChangeText={value=>{if(caption.length<=220 && value.length>220) maybeRoast('paragraph', .9);setCaption(value);}} style={[styles.field,styles.captionField]} placeholder="Write a caption... #memories" placeholderTextColor="#A0A4AE" multiline maxLength={2200}/>
+        <TextInput value={caption} onChangeText={setCaption} style={[styles.field,styles.captionField]} placeholder="Write a caption... #memories" placeholderTextColor="#A0A4AE" multiline maxLength={2200}/>
         <StickerPicker onPick={sticker=>setCaption(value=>(value + (value && !value.endsWith(' ') ? ' ' : '') + sticker).slice(0,2200))}/>
         <MusicComposer value={postMusic} onChange={setPostMusic}/>
         <Mini onPress={()=>setLocationOn(!locationOn)}>{locationOn?'☑':'□'} Add a location to this post</Mini>
@@ -885,7 +806,7 @@ export default function App() {
         <Text style={styles.pageTitle}>Your story</Text><Text style={styles.pageSubtitle}>Share for 24 hours or keep it in your private archive.</Text>
         <TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.uploadCard}>{storyPhoto ? <OriginalFrame uri={storyPhoto}/> : <View style={styles.storyUploadPreview}/>}{!storyPhoto && <View style={styles.uploadOverlay}><Text style={styles.uploadIcon}>＋</Text><Text style={styles.uploadHeading}>Add to your story</Text><Text style={styles.uploadHelp}>Choose a photo to get started</Text></View>}</TouchableOpacity>
         <View style={styles.mediaActions}><TouchableOpacity onPress={()=>openCamera('story')} style={styles.mediaAction}><Ionicons name="camera-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Camera</Text></TouchableOpacity><TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.mediaAction}><Ionicons name="images-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Photo library</Text></TouchableOpacity></View>
-        <TextInput style={styles.field} value={storyCaption} onChangeText={value=>{if(storyCaption.length<=220 && value.length>220) maybeRoast('paragraph', .9);setStoryCaption(value);}} maxLength={2200} placeholder="Add a caption... tag @username" placeholderTextColor="#A0A4AE"/>
+        <TextInput style={styles.field} value={storyCaption} onChangeText={setStoryCaption} maxLength={2200} placeholder="Add a caption... tag @username" placeholderTextColor="#A0A4AE"/>
         <StickerPicker onPick={sticker=>setStoryCaption(value=>(value + (value && !value.endsWith(' ') ? ' ' : '') + sticker).slice(0,2200))}/>
         <MusicComposer value={storyMusic} onChange={setStoryMusic}/>
         <Mini onPress={()=>setStoryLocationOn(!storyLocationOn)}>{storyLocationOn?'☑':'□'} Add optional story location</Mini>
@@ -927,7 +848,7 @@ export default function App() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.collectionsRow}>{myCollections.map(c=><View key={c.id} style={styles.collectionItem}><TouchableOpacity onPress={()=>setViewer({collectionId:c.id,index:0})}><Photo uri={c.cover_url} style={styles.album}/><Text style={styles.albumTitle} numberOfLines={1}>{c.title}</Text><Text style={styles.albumMeta}>{c.visibility} · {collectionItems.filter(x=>x.collection_id===c.id).length} stories</Text></TouchableOpacity>{owns && <View style={styles.collectionControls}><Text style={styles.collectionEdit} onPress={()=>moveCollection(c,-1)}>←</Text><Text style={styles.collectionEdit} onPress={()=>startCollection(c)}>Edit</Text><Text style={styles.collectionEdit} onPress={()=>moveCollection(c,1)}>→</Text></View>}</View>)}</ScrollView>
         {owns && <><View style={styles.sectionRow}><Text style={styles.sectionTitle}>Story archive</Text><Text style={styles.sectionHint}>PRIVATE</Text></View>{archive.length===0?<Text style={styles.emptyInline}>Your saved stories will appear here.</Text>:<View style={styles.grid}>{archive.map(s=><TouchableOpacity key={s.id} style={styles.tile} onPress={()=>setViewer({story:s,own:true})}><Photo uri={s.image_url} style={styles.tileImage}/></TouchableOpacity>)}</View>}</>}
         {owns && <><View style={styles.sectionRow}><Text style={styles.sectionTitle}>Post archive</Text><Text style={styles.sectionHint}>ONLY YOU</Text></View>{posts.filter(p=>p.author_id===me && p.archived).length===0?<Text style={styles.emptyInline}>No archived posts.</Text>:<View style={styles.grid}>{posts.filter(p=>p.author_id===me && p.archived).map(p=><TouchableOpacity key={p.id} style={styles.tile} onPress={()=>postOptions(p)}><Photo uri={p.image_url} style={styles.tileImage}/><Text style={styles.tiny}>Tap to restore</Text></TouchableOpacity>)}</View>}</>}
-        <View style={styles.sectionRow}><Text style={styles.sectionTitle}>Posts</Text><Text style={styles.sectionHint}>{postCount} TOTAL</Text></View>{postCount===0?<Text style={styles.emptyInline}>{owns?'bro is a government mystery':'No posts yet.'}</Text>:<View style={styles.grid}>{posts.filter(p=>p.author_id===profileId && !p.archived).map(p=><TouchableOpacity key={p.id} style={styles.tile} onPress={()=>postOptions(p)} disabled={!owns}><Photo uri={p.image_url} style={styles.tileImage}/></TouchableOpacity>)}</View>}
+        <View style={styles.sectionRow}><Text style={styles.sectionTitle}>Posts</Text><Text style={styles.sectionHint}>{postCount} TOTAL</Text></View>{postCount===0?<Text style={styles.emptyInline}>{'No posts yet.'}</Text>:<View style={styles.grid}>{posts.filter(p=>p.author_id===profileId && !p.archived).map(p=><TouchableOpacity key={p.id} style={styles.tile} onPress={()=>postOptions(p)} disabled={!owns}><Photo uri={p.image_url} style={styles.tileImage}/></TouchableOpacity>)}</View>}
       </>}
       {tab === 'editCollection' && editor && <>
         <Text style={styles.pageTitle}>{editor==='new'?'New memory collection':'Edit memory collection'}</Text>
@@ -964,16 +885,6 @@ export default function App() {
           <View style={styles.cameraIconButton}/>
         </View>
       </View>}
-    </View>}
-    {roastPopup && <View pointerEvents="box-none" style={[
-      styles.roastFloat,
-      roastPopup.corner.startsWith('top') ? styles.roastTop : styles.roastBottom,
-      roastPopup.corner.endsWith('Right') ? {right:16} : {left:16}
-    ]}>
-      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Dismiss Memento joke" onPress={()=>setRoastPopup(null)} style={styles.roastFloatBubble} activeOpacity={0.85}>
-        <Text style={styles.roastFloatEyebrow}>memento said</Text>
-        <Text style={styles.roastFloatText}>{roastPopup.line}</Text>
-      </TouchableOpacity>
     </View>}
     <View style={styles.navDock}>
       <View style={styles.nav}>
