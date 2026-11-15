@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { File } from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 
 const ACCENT = '#E4384F';
@@ -30,11 +32,29 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
   const [website, setWebsite] = useState(profile?.website || '');
   const [instagram, setInstagram] = useState(profile?.instagram || '');
   const [tiktok, setTiktok] = useState(profile?.tiktok || '');
+  const [pickedPhoto, setPickedPhoto] = useState(null);
+  const [removePhoto, setRemovePhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [availability, setAvailability] = useState('idle');
   const normalizedHandle = stripAt(handle).toLowerCase();
   const validHandle = /^[a-z0-9_]{3,24}$/.test(normalizedHandle);
   const previewName = trimmed(displayName) || normalizedHandle || 'Your name';
+  const currentPhoto = profile?.avatar_path
+    ? supabase.storage.from('profile-avatars').getPublicUrl(profile.avatar_path).data.publicUrl
+    : null;
+  const previewPhoto = pickedPhoto?.uri || (!removePhoto ? currentPhoto : null);
+  async function chooseProfilePhoto() {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes:['images'], allowsEditing:true, aspect:[1,1], quality:0.85
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      if (asset.fileSize > 5 * 1024 * 1024) throw Error('Choose a picture under 5 MB.');
+      setPickedPhoto(asset);
+      setRemovePhoto(false);
+    } catch(error) {Alert.alert('Profile picture',error?.message || String(error));}
+  }
 
   useEffect(() => {
     if (!validHandle) {setAvailability('invalid'); return;}
@@ -58,8 +78,8 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
     pronouns !== (profile?.pronouns || '') ||
     website !== (profile?.website || '') ||
     instagram !== (profile?.instagram || '') ||
-    tiktok !== (profile?.tiktok || ''),
-    [displayName,normalizedHandle,bio,category,pronouns,website,instagram,tiktok,profile]
+    tiktok !== (profile?.tiktok || '') || !!pickedPhoto || removePhoto,
+    [displayName,normalizedHandle,bio,category,pronouns,website,instagram,tiktok,pickedPhoto,removePhoto,profile]
   );
 
   async function save() {
@@ -81,7 +101,21 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
       } catch (_) {return Alert.alert('Website','Enter a valid website, like https://example.com');}
     }
     setSaving(true);
+    let uploadedPath = null;
     try {
+      if (pickedPhoto) {
+        const file = new File(pickedPhoto.uri);
+        if (file.size > 5*1024*1024) throw Error('Profile picture must be smaller than 5 MB.');
+        // Keep compatible types with the profile-avatars bucket configuration.
+        const mime = pickedPhoto.mimeType || 'image/jpeg';
+        const extension = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' :
+          (mime === 'image/heic' || mime === 'image/heif') ? 'heic' : 'jpg';
+        uploadedPath = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`;
+        const {error: uploadError} = await supabase.storage.from('profile-avatars').upload(
+          uploadedPath, await file.arrayBuffer(), {contentType:mime,upsert:false}
+        );
+        if (uploadError) throw uploadError;
+      }
       const values = {
         username:normalizedHandle,
         display_name: trimmed(displayName) || null,
@@ -91,13 +125,18 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
         website:site || null,
         instagram:ig || null,
         tiktok:tk || null,
+        avatar_path:uploadedPath || (removePhoto ? null : profile?.avatar_path || null),
       };
       const {data,error} = await supabase.from('profiles').update(values).eq('id',user.id).select('*').single();
       if (error) throw error;
       await onSaved(data);
+      if (profile?.avatar_path && (removePhoto || uploadedPath) && profile.avatar_path.startsWith(user.id + '/')) {
+        supabase.storage.from('profile-avatars').remove([profile.avatar_path]).catch(()=>{});
+      }
     } catch (e) {
+      if (uploadedPath) supabase.storage.from('profile-avatars').remove([uploadedPath]).catch(()=>{});
       Alert.alert('Could not save profile', (e?.code === '23505' ? 'This username is already taken.' :
-        /column|schema cache/i.test(e?.message || '') ?
+        /column|schema cache|bucket not found|profile-avatars/i.test(e?.message || '') ?
         'Profile setup may be missing. Run the profile upgrade SQL in Supabase, then try again.\n\n' + e.message : e?.message || String(e)));
     } finally {setSaving(false);}
   }
@@ -114,11 +153,22 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
       <View style={ui.previewGlow}/>
       <View style={ui.previewKickerRow}><View style={ui.previewDot}/><Text style={ui.previewKicker}>LIVE PROFILE PREVIEW</Text></View>
       <View style={ui.previewIdentity}>
-        <Ionicons name="person-circle-outline" size={67} color="#FFFFFF" />
+        <View style={ui.profilePhoto}>{previewPhoto
+          ? <Image source={{uri:previewPhoto}} style={ui.profilePhotoImage}/>
+          : <Ionicons name="person-circle-outline" size={67} color="#FFFFFF" />}</View>
         <View style={{flex:1}}><Text numberOfLines={1} style={ui.previewName}>{previewName}</Text><Text numberOfLines={1} style={ui.previewHandle}>@{normalizedHandle || 'username'}</Text><Text style={ui.previewCategory}>{category}{trimmed(pronouns) ? ' · '+trimmed(pronouns) : ''}</Text></View>
       </View>
       {!!trimmed(bio) && <Text style={ui.previewBio} numberOfLines={3}>{bio}</Text>}
       <View style={ui.previewFooter}><Ionicons name="eye-outline" size={17} color="#E5E7EB"/><Text style={ui.previewFootText}>This is how others will see your profile.</Text></View>
+    </View>
+    <View style={ui.photoControls}>
+      <TouchableOpacity onPress={chooseProfilePhoto} disabled={saving} style={ui.photoSelect}>
+        <Ionicons name="images-outline" size={20} color="#FFFFFF"/>
+        <Text style={ui.photoSelectLabel}>{previewPhoto ? 'Change profile picture' : 'Add profile picture'}</Text>
+      </TouchableOpacity>
+      {!!previewPhoto && <TouchableOpacity onPress={()=>{setPickedPhoto(null);setRemovePhoto(true)}} disabled={saving} style={ui.photoRemove}>
+        <Ionicons name="trash-outline" size={19} color="#252933"/><Text style={ui.photoRemoveLabel}>Remove</Text>
+      </TouchableOpacity>}
     </View>
     <Text style={ui.sectionHeading}>01 / ABOUT YOU</Text>
     <View style={ui.sectionCard}>
@@ -168,6 +218,13 @@ const ui = StyleSheet.create({
   previewDot:{width:7,height:7,borderRadius:4,backgroundColor:ACCENT},
   previewKicker:{color:'#F0F1F4',fontSize:10,letterSpacing:1.6,fontWeight:'900'},
   previewIdentity:{flexDirection:'row',alignItems:'center',gap:14},
+  profilePhoto:{width:71,height:71,borderRadius:36,alignItems:'center',justifyContent:'center',overflow:'hidden',backgroundColor:'#363C47'},
+  profilePhotoImage:{width:'100%',height:'100%'},
+  photoControls:{flexDirection:'row',gap:9,marginTop:13},
+  photoSelect:{flex:1,backgroundColor:'#272C35',paddingVertical:14,borderRadius:12,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8},
+  photoSelectLabel:{color:'#fff',fontWeight:'850',fontSize:13},
+  photoRemove:{backgroundColor:'#fff',paddingHorizontal:13,borderRadius:12,flexDirection:'row',alignItems:'center',gap:5,borderWidth:1,borderColor:'#C7CCD5'},
+  photoRemoveLabel:{color:'#252933',fontWeight:'800',fontSize:13},
   previewName:{color:'#fff',fontSize:21,fontWeight:'900',letterSpacing:-.4},
   previewHandle:{color:'#F1B7C1',fontWeight:'700',marginTop:3,fontSize:13},
   previewCategory:{color:'#E0E3E9',fontWeight:'700',marginTop:7,fontSize:12},
