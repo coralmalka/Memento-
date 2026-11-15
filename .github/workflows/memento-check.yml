@@ -1,0 +1,37 @@
+name: Memento code and Expo test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check JavaScript and Expo bundles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check all JavaScript and JSX syntax
+        run: npm run check:syntax
+      - name: Check Expo SDK dependencies
+        run: npx expo install --check
+      - name: Bundle Expo for iOS
+        run: npx expo export --platform ios --output-dir dist-ios --clear
+        env:
+          CI: '1'
+          EXPO_NO_TELEMETRY: '1'
+      - name: Bundle Expo for Android
+        run: npx expo export --platform android --output-dir dist-android --clear
+        env:
+          CI: '1'
+          EXPO_NO_TELEMETRY: '1'
