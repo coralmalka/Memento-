@@ -22,7 +22,7 @@ function Action({icon,title,detail,onPress,danger=false}) {
     <Ionicons name="chevron-forward" size={18} color="#515B6C"/>
   </TouchableOpacity>;
 }
-export default function AccountSettings({user,supabase,settings,onSaved,onActivity,onInsights,onNotifications,notificationError,onRefresh,onBack}) {
+export default function AccountSettings({user,supabase,settings,onSaved,onActivity,onInsights,onNotifications,onMfaSetup,notificationError,onRefresh,onBack}) {
   const [saving,setSaving]=useState(false);
   const current = {...DEFAULTS,...settings};
   async function change(key,value) {
@@ -96,6 +96,8 @@ export default function AccountSettings({user,supabase,settings,onSaved,onActivi
     <Header number="03" title="Security & your data" description="Manage how you access Memento."/>
     <View style={styles.card}>
       <View style={styles.account}><Ionicons name="mail-outline" color="#303746" size={22}/><View style={{flex:1}}><Text style={styles.optionTitle}>{user.email || 'Memento account'}</Text><Text style={styles.optionHelp}>Signed in securely with Supabase</Text></View></View>
+      <View style={styles.divider}/>
+      <Action icon="shield-checkmark-outline" title="Two-factor authentication" detail="Verify a code on your phone to protect logins" onPress={onMfaSetup}/>
       <View style={styles.divider}/>
       <Action icon="key-outline" title="Change your password" detail="Send a password reset link to your email" onPress={passwordEmail}/>
       <View style={styles.divider}/>
