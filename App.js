@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path, Line, Circle } from 'react-native-svg';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import { ActivityIndicator, Alert, AppState, Image, RefreshControl, SafeAreaView, ScrollView, Share, Linking, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -17,6 +18,32 @@ import { WebView } from 'react-native-webview';
 import { chooseOriginalAudio, uploadOriginalAudio, signedAudio, trackMetadata, providerFor, searchAppleCatalog } from './lib/music';
 
 const RED = '#E4384F';
+// Original scalable Memento header glyphs based on the provided icon references.
+// Paths are drawn as strokes; they stay sharp at any iPhone screen density.
+function MementoHeaderGlyph({kind, size=33, color='#252933', crossed=false}) {
+  const common = {stroke:color, strokeWidth:3.25, strokeLinecap:'round', strokeLinejoin:'round', fill:'none'};
+  return <Svg width={size} height={size} viewBox="0 0 48 48">
+    {kind === 'camera' && <>
+      <Path d="M6 16H12L16 11H32L36 16H41C43 16 44 18 44 20V40C44 42 42 44 40 44H8C6 44 4 42 4 40V20C4 18 5 16 6 16Z" {...common}/>
+      <Line x1="24" y1="23" x2="24" y2="36" {...common}/>
+      <Line x1="17.5" y1="29.5" x2="30.5" y2="29.5" {...common}/>
+    </>}
+    {kind === 'repost' && <>
+      <Path d="M6 16H12L16 11H32L36 16H41C43 16 44 18 44 20V40C44 42 42 44 40 44H8C6 44 4 42 4 40V20C4 18 5 16 6 16Z" {...common}/>
+      <Path d="M15 27C16 23 20 21 25 21C29 21 32 23 34 26" {...common}/>
+      <Path d="M34 20V26H28" {...common}/>
+      <Path d="M33 32C31 36 28 38 23 38C19 38 16 36 14 33" {...common}/>
+      <Path d="M14 39V33H20" {...common}/>
+    </>}
+    {kind === 'bell' && <>
+      <Path d="M12 34C17 30 17 24 17 20C17 13 20 9 25 9C30 9 33 13 33 20C33 24 33 30 38 34C39 35 38 37 36 37H14C12 37 11 35 12 34Z" {...common}/>
+      <Path d="M21 40C23 43 27 43 29 40" {...common}/>
+      <Path d="M11 13C8 17 8 21 8 25" {...common}/>
+      <Path d="M39 13C42 17 42 21 42 25" {...common}/>
+    </>}
+    {crossed && <Line x1="5" y1="5" x2="44" y2="45" stroke={color} strokeWidth={4.4} strokeLinecap="round"/>}
+  </Svg>;
+}
 const MEMENTO_STICKERS = ['✨','💋','🖤','⭐','💿','🎧','🪩','🎀','🦋','🌙','🕷️','💫','😵‍💫','😭','😂','🔥','💌','🧸','🍒','👽','💎','🫶','🎸','📸','🧿','🕸️','🌸','🩷','💭','🎶','🤍','⚡'];
 function StickerPicker({ onPick }) {
   const [expanded, setExpanded] = useState(false);
@@ -702,14 +729,14 @@ export default function App() {
   return <SafeAreaView style={styles.safe}><StatusBar barStyle="dark-content" backgroundColor="#fff"/>
     <View style={styles.header}>
       <View style={{flexDirection:'row',alignItems:'center',gap:7}}>
-        <TouchableOpacity onPress={()=>openCamera('post')} accessibilityRole="button" accessibilityLabel="Camera to post" style={styles.headerAction}><Ionicons name="camera-outline" size={27} color="#242830"/>{(cameraPermissionDenied || cameraPermission?.status === 'denied') && <View style={styles.cameraDeniedSlash}/>}</TouchableOpacity>
-        <TouchableOpacity onPress={()=>goTab('reposts')} accessibilityRole="button" accessibilityLabel="My reposts" style={styles.headerAction}><Ionicons name="repeat-outline" size={27} color="#242830"/></TouchableOpacity>
+        <TouchableOpacity onPress={()=>openCamera('post')} accessibilityRole="button" accessibilityLabel="Camera to post" style={styles.headerAction}><MementoHeaderGlyph kind="camera" size={31} crossed={cameraPermissionDenied || cameraPermission?.status === 'denied'}/></TouchableOpacity>
+        <TouchableOpacity onPress={()=>goTab('reposts')} accessibilityRole="button" accessibilityLabel="My reposts" style={styles.headerAction}><MementoHeaderGlyph kind="repost" size={31}/></TouchableOpacity>
       </View>
       <Text style={[styles.brand,styles.headerBrand]}>memento<Text style={{color: RED}}>.</Text></Text>
       <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
         <TouchableOpacity onPress={()=>goTab('inbox')} accessibilityRole="button" accessibilityLabel="Direct messages" style={styles.headerAction}><Ionicons name="paper-plane-outline" size={24} color="#242830"/></TouchableOpacity>
         <TouchableOpacity onPress={()=>goTab('settings')} accessibilityRole="button" accessibilityLabel="Settings" style={styles.headerAction}><Ionicons name="settings-outline" size={24} color="#242830"/></TouchableOpacity>
-        <TouchableOpacity onPress={openActivity} accessibilityRole="button" accessibilityLabel="Notifications" style={styles.headerAction}><Ionicons name="notifications-outline" size={27} color="#242830"/>{activity.some(n=>!n.read_at) && <View style={styles.notificationDot}/>}</TouchableOpacity>
+        <TouchableOpacity onPress={openActivity} accessibilityRole="button" accessibilityLabel="Notifications" style={styles.headerAction}><MementoHeaderGlyph kind="bell" size={31}/>{activity.some(n=>!n.read_at) && <View style={styles.notificationDot}/>}</TouchableOpacity>
       </View>
     </View>
     <ScrollView key={tab + profileId} style={styles.screen} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={RED}/>} contentContainerStyle={{ paddingBottom: 108 }}>
@@ -854,7 +881,7 @@ export default function App() {
         <TouchableOpacity accessibilityLabel="Toggle flash" onPress={()=>setCameraFlash(x=>x==='off'?'on':'off')} style={styles.cameraIconButton}><Ionicons name={cameraFlash==='on'?'flash':'flash-off-outline'} size={25} color="#fff"/></TouchableOpacity>
       </View>
       {cameraPermissionDenied || !cameraPermission?.granted ? <View style={styles.cameraNoAccess}>
-        <Ionicons name="camera-outline" size={70} color="#fff"/><Ionicons name="ban-outline" size={45} color="#fff" style={styles.cameraBan}/>
+        <MementoHeaderGlyph kind="camera" size={90} color="#fff" crossed/>
         <Text style={styles.cameraAccessTitle}>Camera access is off</Text>
         <Text style={styles.cameraAccessText}>Allow camera permission to capture posts and stories.</Text>
         <TouchableOpacity style={styles.cameraAccessButton} onPress={async()=>{try{const p=await requestCameraPermission();setCameraPermissionDenied(!p.granted)}catch(e){message(e)}}}><Text style={styles.cameraAccessButtonText}>Allow camera access</Text></TouchableOpacity>
@@ -945,7 +972,7 @@ const styles = StyleSheet.create({
   mentionSuggestionText:{fontSize:13,fontWeight:'800',color:'#2B303A'},
   cameraDeniedSlash:{position:'absolute',top:19,left:3,width:35,height:3,backgroundColor:RED,transform:[{rotate:'-45deg'}]},
   cameraNoAccess:{flex:1,alignItems:'center',justifyContent:'center',padding:20},
-  cameraBan:{position:'absolute',top:'35%',left:'50%'},
+
   cameraAccessTitle:{color:'#fff',fontSize:22,fontWeight:'800',marginTop:25},
   cameraAccessText:{color:'#ccc',textAlign:'center',marginTop:10,marginBottom:15},
   cameraAccessButton:{backgroundColor:'#30343d',borderRadius:12,padding:14,minWidth:195,alignItems:'center',marginTop:9},
