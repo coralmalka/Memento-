@@ -84,6 +84,9 @@ const pickRoast = (name) => {
 Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: true }) });
 const Button = ({ title, onPress, secondary, disabled }) => <TouchableOpacity disabled={disabled} onPress={onPress} style={[styles.button, secondary && styles.secondary, disabled && { opacity: .5 }]}><Text style={[styles.buttonText, secondary && { color: '#202020' }]}>{title}</Text></TouchableOpacity>;
 const Photo = ({ uri, style }) => uri ? <Image source={{ uri }} style={style} resizeMode="cover" /> : <View style={[style, { backgroundColor: '#e8e5e1' }]} />;
+const ProfileThumb = ({ person, size = 38 }) => <View style={[styles.smallAvatar,{width:size,height:size,borderRadius:size/2,overflow:'hidden'}]}>
+  {person?.avatar_url ? <Image source={{uri:person.avatar_url}} style={{width:'100%',height:'100%'}}/> : <Text style={styles.smallAvatarText}>{username(person).charAt(0).toUpperCase()}</Text>}
+</View>;
 // The feed and post composer always show the entire source image at its native aspect ratio.
 // No rounded media frames, padding, forced square, blur, or auto-crop.
 function OriginalFrame({ uri }) {
@@ -762,7 +765,7 @@ export default function App() {
         </ScrollView>
         {feed.length === 0 && <View style={styles.emptyState}><Text style={styles.emptyIcon}>▧</Text><Text style={styles.emptyTitle}>bro is a government mystery</Text><Text style={styles.emptyDescription}>Follow people in Explore or share your first photo to start making memories.</Text><TouchableOpacity style={styles.primaryPill} onPress={() => goTab('explore')}><Text style={styles.primaryPillText}>Find people</Text></TouchableOpacity></View>}
         {feed.map(p => <View key={p.id} style={styles.post}>
-          <TouchableOpacity onPress={() => navigateProfile(p.author_id)} style={styles.postHeading}><View style={[styles.smallAvatar,{overflow:'hidden'}]}>{profiles.find(x=>x.id===p.author_id)?.avatar_url ? <Image source={{uri:profiles.find(x=>x.id===p.author_id).avatar_url}} style={{width:'100%',height:'100%'}}/> : <Text style={styles.smallAvatarText}>{username(profiles.find(x => x.id === p.author_id)).charAt(0).toUpperCase()}</Text>}</View><Text style={styles.postHandle}>{username(profiles.find(x => x.id === p.author_id))}</Text>{p.author_id===me && <TouchableOpacity onPress={()=>postOptions(p)}><Text style={styles.postMore}>···</Text></TouchableOpacity>}</TouchableOpacity>
+          <TouchableOpacity onPress={() => navigateProfile(p.author_id)} style={styles.postHeading}><ProfileThumb person={profiles.find(x=>x.id===p.author_id)}/><Text style={styles.postHandle}>{username(profiles.find(x => x.id === p.author_id))}</Text>{p.author_id===me && <TouchableOpacity onPress={()=>postOptions(p)}><Text style={styles.postMore}>···</Text></TouchableOpacity>}</TouchableOpacity>
           <OriginalFrame uri={p.image_url}/>
           <View style={styles.postActions}><TouchableOpacity onPress={() => likePost(p.id)} disabled={busy}><Text style={[styles.actionIcon,likes.some(l=>l.post_id===p.id&&l.user_id===me)&&{color:RED}]}>{likes.some(l=>l.post_id===p.id&&l.user_id===me)?'♥':'♡'}</Text></TouchableOpacity><TouchableOpacity onPress={() => {setCommenting(commenting===p.id?null:p.id);setCommentDraft('');}}><Text style={styles.actionIcon}>♧</Text></TouchableOpacity><TouchableOpacity onPress={() => setSharePost(p)}><Text style={styles.actionIcon}>↗</Text></TouchableOpacity><TouchableOpacity onPress={() => setSharePost(p)}><Text style={styles.actionIcon}>⇄</Text></TouchableOpacity></View>
           <Text style={styles.engagement}>{likes.filter(l => l.post_id === p.id).length} likes · {comments.filter(c => c.post_id === p.id).length} comments{p.repost_of ? ' · repost' : ''}</Text>
@@ -782,17 +785,42 @@ export default function App() {
         </View>)}
       </>}
       {sharePost && <View style={styles.shareSheet}><Text style={styles.sectionTitle}>Share post</Text><Text style={styles.note}>Choose exactly where it goes. External sharing opens the destination or system share sheet; it does not silently publish.</Text><Mini onPress={()=>nativeRepost(sharePost,false)}>⇄ Repost to my Memento page</Mini><Mini onPress={()=>nativeRepost(sharePost,true)}>◌ Repost to my Memento story</Mini><Mini onPress={()=>externalShare(sharePost,'x')}>𝕏 Compose on X / Twitter</Mini><Mini onPress={()=>externalShare(sharePost,'instagram')}>◎ Open system share sheet for Instagram</Mini><Mini onPress={()=>setSharePost(null)}>Cancel</Mini></View>}
-      {tab === 'settings' && <><Text style={styles.pageTitle}>Settings</Text><Text style={styles.pageSubtitle}>Your content, your choices.</Text>
-        <Text style={styles.section}>Your posts</Text>
-        <Text style={styles.note}>Everyone can publish posts and stories. To hide an individual post from your page, open its ••• menu and choose Archive post. Restore it anytime from your private Post archive on your profile.</Text>
-        <Text style={styles.section}>Device access</Text>
-        <Mini onPress={askPhotoPermission}>Request photo library permission</Mini>
-        <Mini onPress={()=>useLocation(v=>Alert.alert('Current city',v))}>Request location only when I choose</Mini>
-        <Mini onPress={()=>Linking.openSettings()}>Open device app settings</Mini>
-        <Text style={styles.section}>Notifications</Text><Mini onPress={enablePush}>Enable iPhone / Android push alerts</Mini>{!!notificationError && <Text style={styles.note}>{notificationError}</Text>}<Text style={styles.note}>Activity appears inside Memento automatically. Lock-screen banners require a development/production build and deployed push delivery.</Text>
-        <Text style={styles.section}>Connected platforms</Text>
-        <Text style={styles.note}>Instagram and X OAuth connections require registered developer apps, redirect URIs and a secure token server. No external account is connected by this screen yet.</Text>
-        <Text style={styles.section}>Music</Text><Text style={styles.note}>Attach Spotify, SoundCloud or Apple Music links to posts and stories. Playback happens in the music service; Memento does not rebroadcast copyrighted tracks.</Text>
+      {tab === 'settings' && <>
+        <View style={styles.settingsHero}><View style={styles.settingsHeroIcon}><Ionicons name="options-outline" color="#fff" size={25}/></View>
+          <Text style={styles.settingsHeroTitle}>Your space. Your rules.</Text>
+          <Text style={styles.settingsHeroText}>Manage your profile, permissions and account without digging through menus.</Text>
+        </View>
+        <Text style={styles.settingsSectionTitle}>YOUR ACCOUNT</Text>
+        <View style={styles.settingsGroup}>
+          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={()=>{setProfileEdit(true);setTab('editProfile');}}>
+            <View style={styles.settingsRowIcon}><Ionicons name="person-circle-outline" color="#232832" size={23}/></View>
+            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Edit profile</Text><Text style={styles.settingsRowInfo}>Photo, name, bio, category & links</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
+          </TouchableOpacity>
+          <View style={styles.settingsDivider}/>
+          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={()=>Linking.openSettings()}>
+            <View style={styles.settingsRowIcon}><Ionicons name="shield-checkmark-outline" color="#232832" size={22}/></View>
+            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Device permissions</Text><Text style={styles.settingsRowInfo}>Camera, microphone, photos & location</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.settingsSectionTitle}>NOTIFICATIONS & CONTENT</Text>
+        <View style={styles.settingsGroup}>
+          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={enablePush}>
+            <View style={styles.settingsRowIcon}><Ionicons name="notifications-outline" color="#232832" size={22}/></View>
+            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Enable notifications</Text><Text style={styles.settingsRowInfo}>Ask your device to allow Memento alerts</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
+          </TouchableOpacity>
+          {!!notificationError && <Text style={styles.settingsInlineError}>{notificationError}</Text>}
+          <View style={styles.settingsDivider}/>
+          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={refresh}>
+            <View style={styles.settingsRowIcon}><Ionicons name="refresh-outline" color="#232832" size={22}/></View>
+            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Refresh Memento</Text><Text style={styles.settingsRowInfo}>Check for updated posts and messages</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.settingsSectionTitle}>SIGNED IN AS</Text>
+        <View style={styles.settingsGroup}><View style={styles.settingsRow}><View style={styles.settingsRowIcon}><Ionicons name="mail-outline" size={22} color="#232832"/></View><View style={{flex:1}}><Text style={styles.settingsRowTitle}>{session?.user?.email || 'Memento account'}</Text><Text style={styles.settingsRowInfo}>Your account stays logged in until you sign out.</Text></View></View>
+          <View style={styles.settingsDivider}/>
+          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={()=>Alert.alert('Sign out of Memento?', 'You can sign back in any time.',[{text:'Cancel',style:'cancel'},{text:'Sign out',style:'destructive',onPress:()=>supabase.auth.signOut().then(({error})=>{if(error)message(error);})}])}><View style={[styles.settingsRowIcon,{backgroundColor:'#FFF0F2'}]}><Ionicons name="log-out-outline" size={22} color={RED}/></View><View style={{flex:1}}><Text style={[styles.settingsRowTitle,{color:RED}]}>Sign out</Text><Text style={styles.settingsRowInfo}>End this device's session</Text></View><Ionicons name="chevron-forward" size={20} color={RED}/></TouchableOpacity>
+        </View>
+        <Text style={styles.settingsDisclaimer}>In-app activity works with Supabase. Lock-screen push alerts require a configured app build and push-delivery backend.</Text>
       </>}
       {tab === 'reposts' && <>
         <Text style={styles.pageTitle}>My reposts</Text>
@@ -810,7 +838,7 @@ export default function App() {
       {tab === 'activity' && <>
         <Text style={styles.pageTitle}>Activity</Text>
         <Text style={styles.pageSubtitle}>Messages, mentions, likes, comments, follows and reposts.</Text>
-        {activity.length === 0 ? <View style={styles.dmEmpty}><Text style={styles.dmEmptyIcon}>♡</Text><Text style={styles.dmEmptyTitle}>not a single soul thought of u today</Text><Text style={styles.dmEmptyDescription}>When someone interacts with you, it will show up here.</Text></View> : activity.map(n => <TouchableOpacity key={n.id} style={[styles.personRow, !n.read_at && {backgroundColor:'#FFF3F5'}]} onPress={()=>openNotification(n)}><View style={styles.smallAvatar}><Text style={styles.smallAvatarText}>{username(profiles.find(p=>p.id===n.actor_id)).charAt(0).toUpperCase()}</Text></View><View style={{flex:1}}><Text style={styles.personName}>@{username(profiles.find(p=>p.id===n.actor_id))}</Text><Text style={styles.personBio}>{n.body}</Text><Text style={styles.tiny}>{new Date(n.created_at).toLocaleString()}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>)}
+        {activity.length === 0 ? <View style={styles.dmEmpty}><Text style={styles.dmEmptyIcon}>♡</Text><Text style={styles.dmEmptyTitle}>not a single soul thought of u today</Text><Text style={styles.dmEmptyDescription}>When someone interacts with you, it will show up here.</Text></View> : activity.map(n => <TouchableOpacity key={n.id} style={[styles.personRow, !n.read_at && {backgroundColor:'#FFF3F5'}]} onPress={()=>openNotification(n)}><ProfileThumb person={profiles.find(p=>p.id===n.actor_id)}/><View style={{flex:1}}><Text style={styles.personName}>@{username(profiles.find(p=>p.id===n.actor_id))}</Text><Text style={styles.personBio}>{n.body}</Text><Text style={styles.tiny}>{new Date(n.created_at).toLocaleString()}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>)}
       </>}
       {tab === 'inbox' && <>
         <Text style={styles.pageTitle}>{dmPerson ? `@${username(profiles.find(p=>p.id===dmPerson))}` : 'Messages'}</Text>
@@ -827,7 +855,7 @@ export default function App() {
         </> : <>
           {directMessages.length>0 && !!dmInboxRoast && <View style={styles.roastInline}><Text style={styles.roastInlineLabel}>memento said</Text><Text style={styles.roastInlineText}>{dmInboxRoast}</Text></View>}
           {directMessages.length===0 && <View style={styles.dmEmpty}><Text style={styles.dmEmptyIcon}>✉</Text><Text style={styles.dmEmptyTitle}>damn lol nobody likes u</Text><Text style={styles.dmEmptyDescription}>0 friends. 0 messages. crazy work.</Text></View>}
-          {[...new Set(directMessages.map(m => m.sender_id===me?m.recipient_id:m.sender_id))].map(id=>{const latest=directMessages.find(m=>m.sender_id===id||m.recipient_id===id);return <TouchableOpacity key={id} style={styles.personRow} onPress={()=>openChat(id)}><View style={styles.smallAvatar}><Text style={styles.smallAvatarText}>{username(profiles.find(p=>p.id===id)).charAt(0).toUpperCase()}</Text></View><View style={{flex:1}}><Text style={styles.personName}>@{username(profiles.find(p=>p.id===id))}</Text><Text style={styles.personBio} numberOfLines={1}>{latest?.body}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>})}
+          {[...new Set(directMessages.map(m => m.sender_id===me?m.recipient_id:m.sender_id))].map(id=>{const latest=directMessages.find(m=>m.sender_id===id||m.recipient_id===id);return <TouchableOpacity key={id} style={styles.personRow} onPress={()=>openChat(id)}><ProfileThumb person={profiles.find(p=>p.id===id)}/><View style={{flex:1}}><Text style={styles.personName}>@{username(profiles.find(p=>p.id===id))}</Text><Text style={styles.personBio} numberOfLines={1}>{latest?.body}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>})}
           <Text style={styles.section}>Start a message</Text>
           {profiles.filter(p=>p.id!==me).map(p=><TouchableOpacity key={p.id} style={styles.personRow} onPress={()=>openChat(p.id)}><Text style={styles.personName}>@{username(p)}</Text><Text style={styles.disclosure}>›</Text></TouchableOpacity>)}
         </>}
@@ -837,7 +865,7 @@ export default function App() {
         <TextInput style={styles.field} value={search} onChangeText={setSearch} placeholder="Search people or #memories" placeholderTextColor="#A0A4AE" autoCapitalize="none"/>
         <View style={styles.segmentRow}><TouchableOpacity style={[styles.segment,searchType==='people' && styles.segmentActive]} onPress={()=>setSearchType('people')}><Text style={[styles.segmentText,searchType==='people' && styles.segmentTextActive]}>People</Text></TouchableOpacity><TouchableOpacity style={[styles.segment,searchType==='tags' && styles.segmentActive]} onPress={()=>{setSearchType('tags');setSearch(search.replace(/^#/,''));}}><Text style={[styles.segmentText,searchType==='tags' && styles.segmentTextActive]}>Hashtags</Text></TouchableOpacity></View>
         {searchType==='people' && search.trim().length>=2 && !profiles.some(x=>x.id!==me && (x.username||'').toLowerCase().includes(search.toLowerCase())) && <View style={styles.roastInline}><Text style={styles.roastInlineText}>who tf are u looking for</Text></View>}
-        {searchType==='people' ? profiles.filter(x => (x.username || '').toLowerCase().includes(search.toLowerCase()) && x.id!==me).map(p => <TouchableOpacity key={p.id} style={styles.personRow} onPress={()=>navigateProfile(p.id)}><View style={styles.smallAvatar}><Text style={styles.smallAvatarText}>{username(p).charAt(0).toUpperCase()}</Text></View><View style={{flex:1}}><Text style={styles.personName}>@{username(p)}</Text><Text style={styles.personBio} numberOfLines={1}>{p.bio || 'Memento member'}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>) : <>
+        {searchType==='people' ? profiles.filter(x => (x.username || '').toLowerCase().includes(search.toLowerCase()) && x.id!==me).map(p => <TouchableOpacity key={p.id} style={styles.personRow} onPress={()=>navigateProfile(p.id)}><ProfileThumb person={p}/><View style={{flex:1}}><Text style={styles.personName}>@{username(p)}</Text><Text style={styles.personBio} numberOfLines={1}>{p.bio || 'Memento member'}</Text></View><Text style={styles.disclosure}>›</Text></TouchableOpacity>) : <>
           <Text style={styles.note}>Posts tagged #{search.replace(/^#/, '')}</Text>
           {posts.filter(p => !p.archived && search && findHashtag(p.caption,search.replace(/^#/,'').toLowerCase())).map(p=><TouchableOpacity key={p.id} style={styles.post} onPress={()=>navigateProfile(p.author_id)}><OriginalFrame uri={p.image_url}/><HashtagText style={styles.caption} onHashtag={searchTag}>{p.caption}</HashtagText></TouchableOpacity>)}
         </>}
@@ -1032,6 +1060,19 @@ const styles = StyleSheet.create({
   stickerGrid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',paddingVertical:10},
   stickerChoice:{width:'16%',alignItems:'center',paddingVertical:9},
   stickerEmoji:{fontSize:26},
+  settingsHero:{marginHorizontal:15,marginTop:24,backgroundColor:'#171A22',padding:22,borderRadius:23},
+  settingsHeroIcon:{width:46,height:46,borderRadius:14,backgroundColor:'#373D4A',alignItems:'center',justifyContent:'center',marginBottom:15},
+  settingsHeroTitle:{color:'#fff',fontWeight:'900',fontSize:27,letterSpacing:-1},
+  settingsHeroText:{color:'#E0E3E9',fontSize:13,lineHeight:20,marginTop:8,fontWeight:'600'},
+  settingsSectionTitle:{marginLeft:20,marginTop:25,marginBottom:11,fontSize:12,fontWeight:'900',letterSpacing:1.7,color:'#242831'},
+  settingsGroup:{marginHorizontal:15,borderWidth:1,borderColor:'#D9DCE3',backgroundColor:'#fff',borderRadius:17,overflow:'hidden'},
+  settingsRow:{flexDirection:'row',alignItems:'center',paddingHorizontal:15,paddingVertical:16,gap:12},
+  settingsRowIcon:{height:43,width:43,borderRadius:12,backgroundColor:'#F0F1F4',alignItems:'center',justifyContent:'center'},
+  settingsRowTitle:{fontSize:14,fontWeight:'900',color:'#21252E'},
+  settingsRowInfo:{fontSize:12,fontWeight:'600',color:'#535B66',marginTop:4,lineHeight:17},
+  settingsDivider:{height:1,backgroundColor:'#E4E6EB',marginLeft:70},
+  settingsInlineError:{color:RED,fontWeight:'700',padding:15},
+  settingsDisclaimer:{color:'#525A67',fontSize:12,lineHeight:18,marginHorizontal:21,marginTop:20,marginBottom:26,fontWeight:'600'},
   profileHero:{backgroundColor:'#171A22',marginHorizontal:14,marginTop:18,borderRadius:22,paddingTop:17,paddingBottom:22,overflow:'hidden'},
   profileHeroTop:{paddingHorizontal:22,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
   profileHeroKicker:{color:'#E8E9EE',fontSize:10,letterSpacing:1.5,fontWeight:'900'},
