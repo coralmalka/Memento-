@@ -266,6 +266,7 @@ export default function App() {
   const scheduledKeyRef = useRef(null);
 
   const me = session?.user?.id; const mine = profiles.find(p => p.id === me);
+  const accountSettings = accountSettingRows.find(x=>x.user_id===me) || {};
   const profileId = seenProfile || me; const profile = profiles.find(p => p.id === profileId);
 
   const goTab = name => {
@@ -366,6 +367,21 @@ export default function App() {
       setLikes(results[7].data || []); setComments(results[8].data || []);
       setActivity(results[9].data || []); setDirectMessages(results[10].data || []);
       setFeedReady(true);
+      // Optional new features: base feed and messages still load before migration.
+      const upgraded = await Promise.all([
+        supabase.from('content_shares').select('*').order('created_at',{ascending:false}).limit(2000),
+        supabase.from('story_likes').select('*').limit(2000),
+        supabase.from('story_views').select('*').limit(2000),
+        supabase.from('account_settings').select('*').limit(1000)
+      ]);
+      if (upgraded[0].error) console.warn('Share insights not ready:',upgraded[0].error.message);
+      else setContentShares(upgraded[0].data || []);
+      if (upgraded[1].error) console.warn('Story likes not ready:',upgraded[1].error.message);
+      else setStoryLikes(upgraded[1].data || []);
+      if (upgraded[2].error) console.warn('Story views not ready:',upgraded[2].error.message);
+      else setStoryViews(upgraded[2].data || []);
+      if (upgraded[3].error) console.warn('Account settings not ready:',upgraded[3].error.message);
+      else setAccountSettingRows(upgraded[3].data || []);
       const storyIds = [...new Set(results[6].data.map(x => x.story_id))];
       if (storyIds.length) {
         const { data: allowed, error: shareError } = await supabase.from('stories').select('*').in('id', storyIds);
