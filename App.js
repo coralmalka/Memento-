@@ -639,28 +639,81 @@ export default function App() {
     const { error } = await supabase.from('post_comments').insert({ post_id: postId, author_id: me, body: commentDraft.trim() });
     if (error) throw error; setCommentDraft('');
   }); }
-  async function nativeRepost(post, asStory) { await run(async () => {
-    if (!post.image_path) throw Error('This post has no reusable image.');
-    if (asStory) {
-
-      await table('stories', { author_id: me, image_path: post.image_path, caption: `Reposted from @${username(profiles.find(p => p.id === post.author_id))}: ${post.caption || ''}`.slice(0,2200), published_at: new Date().toISOString(), expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), music_url: post.music_url || null, music_provider: post.music_provider || null, music_title: post.music_title || null, music_artist: post.music_artist || null, original_audio_path: post.original_audio_path || null, location_label: post.location_label || null });
-    } else {
-
-      await table('posts', { author_id: me, image_path: post.image_path, caption: `Reposted from @${username(profiles.find(p => p.id === post.author_id))}: ${post.caption || ''}`.slice(0,2200), repost_of: post.id, music_url: post.music_url || null, music_provider: post.music_provider || null, music_title: post.music_title || null, music_artist: post.music_artist || null, original_audio_path: post.original_audio_path || null, location_label: post.location_label || null });
-    }
-    setSharePost(null); Alert.alert('Shared', asStory ? 'Reposted to your Memento story.' : 'Reposted to your Memento page.');
-  }); }
-  async function externalShare(post, destination) {
-    const author = username(profiles.find(p => p.id === post.author_id));
-    const content = `Post by @${author} on Memento\n${post.caption || ''}${post.music_url ? `\n${post.music_url}` : ''}${post.music_title ? `\n♫ ${post.music_title} - ${post.music_artist || 'Original audio'}` : ''}`;
-    try {
-      if (destination === 'x') {
-        await Linking.openURL(`https://twitter.com/intent/tweet?text=${encodeURIComponent(content)}`);
+  const shareOptions = (kind,item) => {
+    if (!item) return;
+    setShareTarget({kind,item});
+  };
+  async function repostShared(targetDestination) {
+    const source = shareTarget;
+    if (!source || busy) return;
+    await run(async () => {
+      const item=source.item;
+      if (!item?.image_path) throw Error('This content has no reusable photo.');
+      const createdAt=new Date();
+      const attribution=`Reposted from @${username(profiles.find(p=>p.id===item.author_id))}`;
+      const payload={
+        author_id:me,image_path:item.image_path,
+        caption:`${attribution}${item.caption?' · '+item.caption:''}`.slice(0,2200),
+        music_url:item.music_url||null,music_provider:item.music_provider||null,
+        music_title:item.music_title||null,music_artist:item.music_artist||null,
+        original_audio_path:item.original_audio_path||null,
+        location_label:item.location_label||null
+      };
+      if (targetDestination==='story') {
+        await table('stories',{
+          ...payload,
+          source_post_id:source.kind==='post'?item.id:null,
+          source_story_id:source.kind==='story'?item.id:null,
+          published_at:createdAt.toISOString(),
+          expires_at:new Date(createdAt.getTime()+DAY_MS).toISOString()
+        });
       } else {
-        await Share.share({ message: `${content}\n${post.image_url || ''}`, title: 'Share to Instagram' });
+        await table('posts',{
+          ...payload,
+          repost_of:source.kind==='post'?item.id:null,
+          source_story_id:source.kind==='story'?item.id:null
+        });
       }
-      setSharePost(null);
-    } catch (e) { message(e); }
+      setShareTarget(null);
+      Alert.alert('Reposted', targetDestination==='story'?'Shared to your Story for 24 hours.':'Added to your profile and Reposts.');
+    });
+  }
+  async function sendShareToFriend(recipientId) {
+    const source=shareTarget;
+    if(!source || busy || !recipientId || recipientId===me)return;
+    await run(async()=>{
+      const item=source.item;
+      await table('direct_messages',{
+        sender_id:me,recipient_id:recipientId,
+        body:source.kind==='post'?'Shared a post':'Shared a story',
+        shared_post_id:source.kind==='post'?item.id:null,
+        shared_story_id:source.kind==='story'?item.id:null
+      });
+      setShareTarget(null);
+      Alert.alert('Sent','Shared in Memento messages.');
+    });
+  }
+  async function toggleStoryLike(story) {
+    if (!story?.id || busy)return;
+    await run(async()=>{
+      const liked=storyLikes.some(x=>x.story_id===story.id&&x.user_id===me);
+      const request=liked
+        ? supabase.from('story_likes').delete().eq('story_id',story.id).eq('user_id',me)
+        : supabase.from('story_likes').insert({story_id:story.id,user_id:me});
+      const {error}=await request;if(error)throw error;
+    });
+  }
+  async function sendStoryReply(story) {
+    const body=storyReplyDraft.trim();
+    if(!body || !story?.id || story.author_id===me || busy)return;
+    await run(async()=>{
+      const {error}=await supabase.from('direct_messages').insert({
+        sender_id:me,recipient_id:story.author_id,reply_to_story_id:story.id,body
+      });
+      if(error)throw error;
+      setStoryReplyDraft('');
+      Alert.alert('Reply sent','Your reply is in their Memento messages.');
+    });
   }
 
   const owns = profileId === me;
