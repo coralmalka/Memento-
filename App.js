@@ -85,7 +85,7 @@ Notifications.setNotificationHandler({ handleNotification: async () => ({ should
 const Button = ({ title, onPress, secondary, disabled }) => <TouchableOpacity disabled={disabled} onPress={onPress} style={[styles.button, secondary && styles.secondary, disabled && { opacity: .5 }]}><Text style={[styles.buttonText, secondary && { color: '#202020' }]}>{title}</Text></TouchableOpacity>;
 const Photo = ({ uri, style }) => uri ? <Image source={{ uri }} style={style} resizeMode="cover" /> : <View style={[style, { backgroundColor: '#e8e5e1' }]} />;
 const ProfileThumb = ({ person, size = 38 }) => <View style={[styles.smallAvatar,{width:size,height:size,borderRadius:size/2,overflow:'hidden'}]}>
-  {person?.avatar_url ? <Image source={{uri:person.avatar_url}} style={{width:'100%',height:'100%'}}/> : <Text style={styles.smallAvatarText}>{username(person).charAt(0).toUpperCase()}</Text>}
+  {person?.avatar_url ? <Image source={{uri:person.avatar_url}} style={{width:'100%',height:'100%'}}/> : <Ionicons name="person-circle-outline" size={size} color="#4B5362" />}
 </View>;
 // The feed and post composer always show the entire source image at its native aspect ratio.
 // No rounded media frames, padding, forced square, blur, or auto-crop.
@@ -739,7 +739,6 @@ export default function App() {
 
   const postCount = posts.filter(p => p.author_id === profileId && !p.archived).length;
   const followingCount = owns ? follows.length : null;
-  const initial = username(profile).charAt(0).toUpperCase();
 
   return <SafeAreaView style={styles.safe}><StatusBar barStyle="dark-content" backgroundColor="#fff"/>
     <View style={styles.header}>
@@ -898,7 +897,7 @@ export default function App() {
         <View style={styles.profileHero}>
           <View style={styles.profileHeroTop}><Text style={styles.profileHeroKicker}>MEMENTO / PROFILE</Text><Ionicons name="sparkles-outline" size={19} color="#F1B6C2"/></View>
           <View style={styles.profileTop}>
-            <View style={styles.profileAvatar}>{profile?.avatar_url ? <Image source={{uri:profile.avatar_url}} style={styles.profileAvatarPicture}/> : <Text style={styles.profileInitial}>{initial}</Text>}</View>
+            <View style={styles.profileAvatar}>{profile?.avatar_url ? <Image source={{uri:profile.avatar_url}} style={styles.profileAvatarPicture}/> : <Ionicons name="person-circle-outline" size={78} color="#FFFFFF" />}</View>
             <View style={styles.profileStats}>
               <View style={styles.profileStat}><Text style={[styles.profileStatNumber,styles.profileHeroStat]}>{postCount}</Text><Text style={[styles.profileStatLabel,styles.profileHeroStatLabel]}>POSTS</Text></View>
               <View style={styles.profileStat}><Text style={[styles.profileStatNumber,styles.profileHeroStat]}>{myCollections.length}</Text><Text style={[styles.profileStatLabel,styles.profileHeroStatLabel]}>MEMORIES</Text></View>
