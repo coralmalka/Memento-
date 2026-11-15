@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
 import { ActivityIndicator, Alert, Image, RefreshControl, SafeAreaView, ScrollView, Share, Linking, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { configured, supabase } from './lib/supabase';
 import { pickImage, uploadImage, signedImage } from './lib/media';
@@ -14,6 +16,22 @@ import { WebView } from 'react-native-webview';
 import { chooseOriginalAudio, uploadOriginalAudio, signedAudio, trackMetadata, providerFor, searchAppleCatalog } from './lib/music';
 
 const RED = '#E4384F';
+const MEMENTO_STICKERS = ['✨','💋','🖤','⭐','💿','🎧','🪩','🎀','🦋','🌙','🕷️','💫','😵‍💫','😭','😂','🔥','💌','🧸','🍒','👽','💎','🫶','🎸','📸','🧿','🕸️','🌸','🩷','💭','🎶','🤍','⚡'];
+function StickerPicker({ onPick }) {
+  const [expanded, setExpanded] = useState(false);
+  return <View style={styles.stickerSection}>
+    <TouchableOpacity accessibilityRole="button" onPress={() => setExpanded(x => !x)} style={styles.stickerToggle}>
+      <Ionicons name="happy-outline" size={20} color="#282C36" />
+      <Text style={styles.stickerToggleText}>{expanded ? 'Hide stickers' : 'Add stickers'}</Text>
+      <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={17} color="#555" />
+    </TouchableOpacity>
+    {expanded && <View style={styles.stickerGrid}>{MEMENTO_STICKERS.map((sticker, index) =>
+      <TouchableOpacity key={index} accessibilityRole="button" accessibilityLabel={`Insert ${sticker} sticker`} onPress={() => onPick(sticker)} style={styles.stickerChoice}>
+        <Text style={styles.stickerEmoji}>{sticker}</Text>
+      </TouchableOpacity>
+    )}</View>}
+  </View>;
+}
 // Memento talks trash. These are product copy, never sent as messages from another user.
 // Owner-supplied lines are kept verbatim, including punctuation and lack of emojis.
 const ROAST_LINES = {
@@ -189,6 +207,13 @@ export default function App() {
   const [seenProfile, setSeenProfile] = useState(null); const [search, setSearch] = useState('');
   const [searchType, setSearchType] = useState('people'); const [caption, setCaption] = useState('');
   const [photoUri, setPhotoUri] = useState(null); const [storyPhoto, setStoryPhoto] = useState(null);
+  const cameraRef = useRef(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [cameraTarget, setCameraTarget] = useState(null);
+  const [cameraFacing, setCameraFacing] = useState('back');
+  const [cameraFlash, setCameraFlash] = useState('off');
+  const [cameraSaveToPhotos, setCameraSaveToPhotos] = useState(true);
+  const [cameraTakingPhoto, setCameraTakingPhoto] = useState(false);
   const [storyCaption, setStoryCaption] = useState(''); const [editor, setEditor] = useState(null);
   const [editorTitle, setEditorTitle] = useState(''); const [editorVisibility, setEditorVisibility] = useState('private');
   const [editorCoverPath, setEditorCoverPath] = useState(null); const [editorStoryIds, setEditorStoryIds] = useState([]);
@@ -480,6 +505,34 @@ export default function App() {
     if (error) throw error; setProfileEdit(false); setTab('profile');
   }); }
   async function chooseCover() { try { const uri = await pickImage(); if (uri) await run(async () => setEditorCoverPath(await uploadImage(me, uri))); } catch (e) { message(e); } }
+  const openCamera = async target => {
+    try {
+      let permission = cameraPermission;
+      if (!permission?.granted) permission = await requestCameraPermission();
+      if (!permission?.granted) {
+        Alert.alert('Camera access needed', 'Enable Camera access for Memento in your iPhone Settings.');
+        return;
+      }
+      setCameraTarget(target);
+    } catch (e) { message(e); }
+  };
+  const captureCameraPhoto = async () => {
+    if (cameraTakingPhoto || !cameraRef.current || !cameraTarget) return;
+    setCameraTakingPhoto(true);
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 1, skipProcessing: false });
+      if (!photo?.uri) throw Error('No photo was captured. Try again.');
+      if (cameraSaveToPhotos) {
+        const access = await MediaLibrary.requestPermissionsAsync(true);
+        if (access.granted) await MediaLibrary.saveToLibraryAsync(photo.uri);
+        else Alert.alert('Photo captured', 'Photo library access was denied. The picture is still ready to post in Memento.');
+      }
+      if (cameraTarget === 'story') setStoryPhoto(photo.uri);
+      else setPhotoUri(photo.uri);
+      setCameraTarget(null);
+    } catch (e) { message(e); }
+    finally { setCameraTakingPhoto(false); }
+  };
   const selectPhoto = async setter => {
     try {
       // Photo selection normally does not require full-library permission; iOS supports selected photos.
@@ -667,7 +720,9 @@ export default function App() {
       {tab === 'create' && <>
         <Text style={styles.pageTitle}>New post</Text><Text style={styles.pageSubtitle}>Share a moment worth keeping.</Text>
         <TouchableOpacity onPress={()=>selectPhoto(setPhotoUri)} style={styles.uploadCard}>{photoUri ? <OriginalFrame uri={photoUri}/> : <View style={styles.uploadPreview}/>}{!photoUri && <View style={styles.uploadOverlay}><Text style={styles.uploadIcon}>＋</Text><Text style={styles.uploadHeading}>Choose a photo</Text><Text style={styles.uploadHelp}>Tap to open your photo library</Text></View>}</TouchableOpacity>
+        <View style={styles.mediaActions}><TouchableOpacity onPress={()=>openCamera('post')} style={styles.mediaAction}><Ionicons name="camera-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Camera</Text></TouchableOpacity><TouchableOpacity onPress={()=>selectPhoto(setPhotoUri)} style={styles.mediaAction}><Ionicons name="images-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Photo library</Text></TouchableOpacity></View>
         <TextInput value={caption} onChangeText={value=>{if(caption.length<=220 && value.length>220) maybeRoast('paragraph', .9);setCaption(value);}} style={[styles.field,styles.captionField]} placeholder="Write a caption... #memories" placeholderTextColor="#A0A4AE" multiline maxLength={2200}/>
+        <StickerPicker onPick={sticker=>setCaption(value=>(value + (value && !value.endsWith(' ') ? ' ' : '') + sticker).slice(0,2200))}/>
         <MusicComposer value={postMusic} onChange={setPostMusic}/>
         <Mini onPress={()=>setLocationOn(!locationOn)}>{locationOn?'☑':'□'} Add a location to this post</Mini>
         {locationOn && <><TextInput style={styles.field} value={locationLabel} onChangeText={setLocationLabel} placeholder="Optional city/place (you control what appears)"/><Mini onPress={()=>useLocation(setLocationLabel)}>Use my current city (permission requested)</Mini></>}
@@ -677,7 +732,9 @@ export default function App() {
       {tab === 'story' && <>
         <Text style={styles.pageTitle}>Your story</Text><Text style={styles.pageSubtitle}>Share for 24 hours or keep it in your private archive.</Text>
         <TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.uploadCard}>{storyPhoto ? <OriginalFrame uri={storyPhoto}/> : <View style={styles.storyUploadPreview}/>}{!storyPhoto && <View style={styles.uploadOverlay}><Text style={styles.uploadIcon}>＋</Text><Text style={styles.uploadHeading}>Add to your story</Text><Text style={styles.uploadHelp}>Choose a photo to get started</Text></View>}</TouchableOpacity>
+        <View style={styles.mediaActions}><TouchableOpacity onPress={()=>openCamera('story')} style={styles.mediaAction}><Ionicons name="camera-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Camera</Text></TouchableOpacity><TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.mediaAction}><Ionicons name="images-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Photo library</Text></TouchableOpacity></View>
         <TextInput style={styles.field} value={storyCaption} onChangeText={value=>{if(storyCaption.length<=220 && value.length>220) maybeRoast('paragraph', .9);setStoryCaption(value);}} maxLength={2200} placeholder="Add a caption..." placeholderTextColor="#A0A4AE"/>
+        <StickerPicker onPick={sticker=>setStoryCaption(value=>(value + (value && !value.endsWith(' ') ? ' ' : '') + sticker).slice(0,2200))}/>
         <MusicComposer value={storyMusic} onChange={setStoryMusic}/>
         <Mini onPress={()=>setStoryLocationOn(!storyLocationOn)}>{storyLocationOn?'☑':'□'} Add optional story location</Mini>
         {storyLocationOn && <><TextInput style={styles.field} value={storyLocationLabel} onChangeText={setStoryLocationLabel} placeholder="Optional city/place"/><Mini onPress={()=>useLocation(setStoryLocationLabel)}>Use my current city (permission requested)</Mini></>}
@@ -706,8 +763,24 @@ export default function App() {
         <Button title={busy?'Saving…':'Save collection'} disabled={busy} onPress={saveCollection}/>{editor!=='new'&&<Button secondary title="Delete collection" onPress={()=>deleteCollection(editor)}/>}<Button secondary title="Cancel" onPress={()=>{setEditor(null);setTab('profile');}}/>
       </>}
       {tab==='view' && viewer && <><Text style={styles.pageTitle}>{currentCollection?.title||'Story'}</Text><OriginalFrame uri={viewStory?.image_url}/>{!!viewStory?.location_label && <Text style={styles.locationText}>⌖ {viewStory.location_label}</Text>}<MusicDisplay item={viewStory}/><HashtagText style={styles.caption} onHashtag={searchTag}>{viewStory?.caption}</HashtagText>{currentCollection&&<><Text style={styles.note}>{(viewer.index||0)+1} / {selectedStories.length}</Text><View style={styles.row}><Button secondary title="← Previous" onPress={()=>setViewer({...viewer,index:Math.max(0,(viewer.index||0)-1)})}/><Button secondary title="Next →" onPress={()=>setViewer({...viewer,index:Math.min(selectedStories.length-1,(viewer.index||0)+1)})}/></View><Button secondary title="Share collection" onPress={()=>Share.share({message:`See my ${currentCollection.title} collection on Memento!`,title:currentCollection.title})}/></>}{viewer.own&&<Button secondary title="Delete story" onPress={()=>deleteStory(viewStory.id)}/>}<Button title="Close" onPress={()=>{setViewer(null);setTab('profile');}}/></>}
-      {tab==='editProfile' && profileEdit && <><Text style={styles.pageTitle}>Edit profile</Text><TextInput value={newUsername} onChangeText={setNewUsername} style={styles.field} autoCapitalize="none" placeholder="Username"/><TextInput value={newBio} onChangeText={setNewBio} multiline maxLength={300} style={styles.field} placeholder="Bio"/><Button title="Save profile" onPress={editProfile}/><Button secondary title="Cancel" onPress={()=>setTab('profile')}/></>}
+      {tab==='editProfile' && profileEdit && <><Text style={styles.pageTitle}>Edit profile</Text><TextInput value={newUsername} onChangeText={setNewUsername} style={styles.field} autoCapitalize="none" placeholder="Username"/><TextInput value={newBio} onChangeText={setNewBio} multiline maxLength={300} style={styles.field} placeholder="Bio"/><StickerPicker onPick={sticker=>setNewBio(value=>(value + (value && !value.endsWith(' ') ? ' ' : '') + sticker).slice(0,300))}/><Button title="Save profile" onPress={editProfile}/><Button secondary title="Cancel" onPress={()=>setTab('profile')}/></>}
     </ScrollView>
+    {!!cameraTarget && <View style={styles.cameraOverlay}>
+      <View style={styles.cameraTopBar}>
+        <TouchableOpacity accessibilityLabel="Close camera" onPress={()=>setCameraTarget(null)} style={styles.cameraIconButton}><Ionicons name="close" size={28} color="#fff"/></TouchableOpacity>
+        <Text style={styles.cameraTitle}>{cameraTarget === 'story' ? 'Story camera' : 'Post camera'}</Text>
+        <TouchableOpacity accessibilityLabel="Toggle flash" onPress={()=>setCameraFlash(x=>x==='off'?'on':'off')} style={styles.cameraIconButton}><Ionicons name={cameraFlash==='on'?'flash':'flash-off-outline'} size={25} color="#fff"/></TouchableOpacity>
+      </View>
+      <CameraView ref={cameraRef} style={styles.cameraPreview} facing={cameraFacing} flash={cameraFlash} mode="picture" />
+      <View style={styles.cameraBottomBar}>
+        <TouchableOpacity accessibilityRole="checkbox" accessibilityState={{checked:cameraSaveToPhotos}} onPress={()=>setCameraSaveToPhotos(x=>!x)} style={styles.cameraSaveRow}><Ionicons name={cameraSaveToPhotos?'checkbox':'square-outline'} color="#fff" size={21}/><Text style={styles.cameraSaveText}>Save to Photos</Text></TouchableOpacity>
+        <View style={styles.cameraShutterRow}>
+          <TouchableOpacity accessibilityLabel="Switch camera" onPress={()=>setCameraFacing(x=>x==='back'?'front':'back')} style={styles.cameraIconButton}><Ionicons name="camera-reverse-outline" size={28} color="#fff"/></TouchableOpacity>
+          <TouchableOpacity accessibilityLabel="Take photo" disabled={cameraTakingPhoto} onPress={captureCameraPhoto} style={styles.cameraShutter}>{cameraTakingPhoto ? <ActivityIndicator color="#222"/> : <View style={styles.cameraShutterInner}/>}</TouchableOpacity>
+          <View style={styles.cameraIconButton}/>
+        </View>
+      </View>
+    </View>}
     {roastPopup && <View pointerEvents="box-none" style={[
       styles.roastFloat,
       roastPopup.corner.startsWith('top') ? styles.roastTop : styles.roastBottom,
@@ -777,5 +850,25 @@ const styles = StyleSheet.create({
   roastTop:{top:75},roastBottom:{bottom:96},
   roastFloatBubble:{backgroundColor:'#242730',paddingHorizontal:16,paddingVertical:14,borderRadius:17,borderWidth:1,borderColor:'#454954',shadowColor:'#000',shadowOffset:{width:0,height:5},shadowOpacity:0.18,shadowRadius:10,elevation:6},
   roastFloatEyebrow:{color:'#A9B0BC',fontSize:10,fontWeight:'850',letterSpacing:0.75,marginBottom:5},
-  roastFloatText:{color:'#FFFFFF',fontSize:15,fontWeight:'800',lineHeight:21}
+  roastFloatText:{color:'#FFFFFF',fontSize:15,fontWeight:'800',lineHeight:21},
+  mediaActions:{flexDirection:'row',gap:10,marginHorizontal:20,marginVertical:8},
+  mediaAction:{flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,paddingVertical:13,borderRadius:12,backgroundColor:'#F1F2F5'},
+  mediaActionText:{fontWeight:'700',color:'#252A34',fontSize:13},
+  stickerSection:{marginHorizontal:20,marginVertical:7},
+  stickerToggle:{flexDirection:'row',alignItems:'center',gap:9,backgroundColor:'#F1F2F5',padding:13,borderRadius:12},
+  stickerToggleText:{fontSize:13,fontWeight:'800',color:'#292D36',flex:1},
+  stickerGrid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',paddingVertical:10},
+  stickerChoice:{width:'16%',alignItems:'center',paddingVertical:9},
+  stickerEmoji:{fontSize:26},
+  cameraOverlay:{position:'absolute',top:0,bottom:0,left:0,right:0,zIndex:100,backgroundColor:'#08090D'},
+  cameraTopBar:{height:58,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:12},
+  cameraTitle:{color:'#fff',fontWeight:'800',fontSize:16},
+  cameraIconButton:{height:48,width:48,alignItems:'center',justifyContent:'center'},
+  cameraPreview:{flex:1},
+  cameraBottomBar:{paddingBottom:24,paddingTop:14},
+  cameraSaveRow:{flexDirection:'row',alignItems:'center',gap:8,alignSelf:'center',padding:8},
+  cameraSaveText:{color:'#fff',fontWeight:'700',fontSize:13},
+  cameraShutterRow:{flexDirection:'row',justifyContent:'space-around',alignItems:'center',marginTop:8},
+  cameraShutter:{width:76,height:76,borderRadius:38,backgroundColor:'#fff',alignItems:'center',justifyContent:'center',borderWidth:4,borderColor:'#aeb2ba'},
+  cameraShutterInner:{height:59,width:59,borderRadius:30,backgroundColor:'#fff',borderWidth:2,borderColor:'#333'}
 });
