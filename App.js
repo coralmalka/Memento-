@@ -912,7 +912,6 @@ export default function App() {
             <View style={styles.profileLinks}>
               {!!profile?.website && <TouchableOpacity style={styles.profileLink} onPress={()=>Linking.openURL(profile.website).catch(message)}><Ionicons name="globe-outline" size={16} color="#fff"/><Text style={styles.profileLinkText}>Website</Text></TouchableOpacity>}
               {!!profile?.instagram && <TouchableOpacity style={styles.profileLink} onPress={()=>Linking.openURL('https://www.instagram.com/'+encodeURIComponent(profile.instagram)).catch(message)}><Ionicons name="logo-instagram" size={16} color="#fff"/><Text style={styles.profileLinkText}>Instagram</Text></TouchableOpacity>}
-              {!!profile?.tiktok && <TouchableOpacity style={styles.profileLink} onPress={()=>Linking.openURL('https://www.tiktok.com/@'+encodeURIComponent(profile.tiktok)).catch(message)}><Ionicons name="musical-notes-outline" size={16} color="#fff"/><Text style={styles.profileLinkText}>TikTok</Text></TouchableOpacity>}
             </View>
           </View>
         </View>
