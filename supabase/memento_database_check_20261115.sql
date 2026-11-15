@@ -10,7 +10,7 @@ required_columns(table_name, column_name) as (
   values
     ('profiles','username'),('profiles','bio'),('profiles','display_name'),
     ('profiles','category'),('profiles','pronouns'),('profiles','website'),
-    ('profiles','instagram'),('profiles','tiktok'),('profiles','avatar_path'),
+    ('profiles','instagram'),('profiles','avatar_path'),
     ('posts','image_path'),('posts','caption'),('posts','repost_of'),
     ('posts','archived'),('posts','music_url'),
     ('posts','music_provider'),('posts','music_title'),
