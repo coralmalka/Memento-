@@ -724,7 +724,28 @@ export default function App() {
   const currentCollection = collections.find(c => c.id === viewer?.collectionId);
   const selectedStories = viewer?.collectionId ? collectionItems.filter(x => x.collection_id === viewer.collectionId).map(x => [...archive, ...stories, ...sharedStories].find(s => s.id === x.story_id)).filter(Boolean) : [];
   const viewStory = viewer?.story || selectedStories[viewer?.index || 0];
+  const detailPost = posts.find(p=>p.id===selectedPostId);
+  const storyOwnerSettings=accountSettingRows.find(x=>x.user_id===viewStory?.author_id) || {};
+  const canReplyToStory = viewStory?.author_id!==me &&
+    storyOwnerSettings.story_replies!=='off' &&
+    (storyOwnerSettings.story_replies!=='following' || follows.some(f=>f.followed_id===viewStory?.author_id));
+  const storyIsActive=!!(viewStory?.published_at && Date.parse(viewStory?.expires_at)>Date.now());
   useEffect(() => { if (viewer) setTab('view'); }, [viewer]);
+  // One distinct view per signed-in account and Story, not an inflated view count.
+  useEffect(()=>{
+    if(!me || !viewStory?.id || viewStory.author_id===me || !viewStory.published_at ||
+       Date.parse(viewStory.expires_at)<=Date.now())return;
+    let cancelled=false;
+    supabase.from('story_views').upsert({
+      story_id:viewStory.id,viewer_id:me,last_viewed_at:new Date().toISOString()
+    },{onConflict:'story_id,viewer_id'}).then(({error})=>{
+      if(!cancelled && !error) {
+        setStoryViews(old=>old.some(x=>x.story_id===viewStory.id && x.viewer_id===me)
+          ? old : [...old,{story_id:viewStory.id,viewer_id:me}]);
+      }
+    }).catch(()=>{});
+    return ()=>{cancelled=true;};
+  },[me,viewStory?.id,viewStory?.author_id,viewStory?.published_at,viewStory?.expires_at]);
 
   if (!configured) return <SafeAreaView style={styles.safe}><View style={styles.auth}><Text style={styles.brand}>memento</Text><Text style={styles.title}>Backend setup needed</Text><Text style={styles.note}>Add your Supabase URL and publishable key to .env, then run the SQL in supabase/schema.sql. Follow README.md. Never use a secret or service-role key in the app.</Text></View></SafeAreaView>;
   if (booting) return <SafeAreaView style={styles.center}><ActivityIndicator size="large" color={RED}/></SafeAreaView>;
