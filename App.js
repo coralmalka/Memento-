@@ -776,44 +776,14 @@ export default function App() {
           {/@[a-z0-9_]*$/i.test(commentDraft) && <ScrollView horizontal style={{maxHeight:52}}>{profiles.filter(person=>person.id!==me && person.username?.toLowerCase().startsWith((commentDraft.match(/@([a-z0-9_]*)$/i)||[])[1]?.toLowerCase()||'')).slice(0,8).map(person=><TouchableOpacity key={person.id} style={styles.mentionSuggestion} onPress={()=>setCommentDraft(value=>value.replace(/@[a-z0-9_]*$/i,`@${person.username} `))}><Text style={styles.mentionSuggestionText}>@{person.username}</Text></TouchableOpacity>)}</ScrollView>}<Button title="Post comment" onPress={()=>addComment(p.id)} disabled={!commentDraft.trim()||busy}/></View>}<Text style={styles.postDate}>{new Date(p.created_at).toLocaleDateString()}</Text>
         </View>)}
       </>}
-      {sharePost && <View style={styles.shareSheet}><Text style={styles.sectionTitle}>Share post</Text><Text style={styles.note}>Choose exactly where it goes. External sharing opens the destination or system share sheet; it does not silently publish.</Text><Mini onPress={()=>nativeRepost(sharePost,false)}>⇄ Repost to my Memento page</Mini><Mini onPress={()=>nativeRepost(sharePost,true)}>◌ Repost to my Memento story</Mini><Mini onPress={()=>externalShare(sharePost,'x')}>𝕏 Compose on X / Twitter</Mini><Mini onPress={()=>externalShare(sharePost,'instagram')}>◎ Open system share sheet for Instagram</Mini><Mini onPress={()=>setSharePost(null)}>Cancel</Mini></View>}
-      {tab === 'settings' && <>
-        <View style={styles.settingsHero}><View style={styles.settingsHeroIcon}><Ionicons name="options-outline" color="#fff" size={25}/></View>
-          <Text style={styles.settingsHeroTitle}>Your space. Your rules.</Text>
-          <Text style={styles.settingsHeroText}>Manage your profile, permissions and account without digging through menus.</Text>
-        </View>
-        <Text style={styles.settingsSectionTitle}>YOUR ACCOUNT</Text>
-        <View style={styles.settingsGroup}>
-          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={()=>{setProfileEdit(true);setTab('editProfile');}}>
-            <View style={styles.settingsRowIcon}><Ionicons name="person-circle-outline" color="#232832" size={23}/></View>
-            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Edit profile</Text><Text style={styles.settingsRowInfo}>Name, bio, category & social links</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
-          </TouchableOpacity>
-          <View style={styles.settingsDivider}/>
-          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={()=>Linking.openSettings()}>
-            <View style={styles.settingsRowIcon}><Ionicons name="shield-checkmark-outline" color="#232832" size={22}/></View>
-            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Device permissions</Text><Text style={styles.settingsRowInfo}>Camera, microphone, photos & location</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.settingsSectionTitle}>NOTIFICATIONS & CONTENT</Text>
-        <View style={styles.settingsGroup}>
-          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={enablePush}>
-            <View style={styles.settingsRowIcon}><Ionicons name="notifications-outline" color="#232832" size={22}/></View>
-            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Enable notifications</Text><Text style={styles.settingsRowInfo}>Ask your device to allow Memento alerts</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
-          </TouchableOpacity>
-          {!!notificationError && <Text style={styles.settingsInlineError}>{notificationError}</Text>}
-          <View style={styles.settingsDivider}/>
-          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={refresh}>
-            <View style={styles.settingsRowIcon}><Ionicons name="refresh-outline" color="#232832" size={22}/></View>
-            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Refresh Memento</Text><Text style={styles.settingsRowInfo}>Check for updated posts and messages</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.settingsSectionTitle}>SIGNED IN AS</Text>
-        <View style={styles.settingsGroup}><View style={styles.settingsRow}><View style={styles.settingsRowIcon}><Ionicons name="mail-outline" size={22} color="#232832"/></View><View style={{flex:1}}><Text style={styles.settingsRowTitle}>{session?.user?.email || 'Memento account'}</Text><Text style={styles.settingsRowInfo}>Your account stays logged in until you sign out.</Text></View></View>
-          <View style={styles.settingsDivider}/>
-          <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={()=>Alert.alert('Sign out of Memento?', 'You can sign back in any time.',[{text:'Cancel',style:'cancel'},{text:'Sign out',style:'destructive',onPress:()=>supabase.auth.signOut().then(({error})=>{if(error)message(error);})}])}><View style={[styles.settingsRowIcon,{backgroundColor:'#FFF0F2'}]}><Ionicons name="log-out-outline" size={22} color={RED}/></View><View style={{flex:1}}><Text style={[styles.settingsRowTitle,{color:RED}]}>Sign out</Text><Text style={styles.settingsRowInfo}>End this device's session</Text></View><Ionicons name="chevron-forward" size={20} color={RED}/></TouchableOpacity>
-        </View>
-        <Text style={styles.settingsDisclaimer}>In-app activity works with Supabase. Lock-screen push alerts require a configured app build and push-delivery backend.</Text>
-      </>}
+      {tab === 'settings' && <AccountSettings
+        user={session.user} supabase={supabase} settings={accountSettings}
+        onSaved={saved=>setAccountSettingRows(old=>[...old.filter(x=>x.user_id!==me),saved])}
+        onActivity={openActivity}
+        onInsights={()=>setInsightsTarget({kind:'account',ownerId:me})}
+        onNotifications={enablePush} notificationError={notificationError}
+        onRefresh={refresh} onBack={()=>goTab('profile')}
+      />}
       {tab === 'reposts' && <>
         <Text style={styles.pageTitle}>My reposts</Text>
         <Text style={styles.pageSubtitle}>Posts you've reposted from other people.</Text>
@@ -933,6 +903,19 @@ export default function App() {
         onCancel={()=>{setProfileEdit(false);setTab('profile');setSeenProfile(me);}}
         onSaved={updated=>{setProfiles(old=>old.map(p=>p.id===me?{...p,...updated}:p));setProfileEdit(false);setSeenProfile(me);setTab('profile');load();}}/>}
     </ScrollView>
+    <ShareComposer
+      target={shareTarget} profiles={profiles} userId={me} busy={busy}
+      onClose={()=>setShareTarget(null)}
+      onRepost={repostShared}
+      onSendFriend={sendShareToFriend}
+    />
+    <ContentInsights
+      target={insightsTarget} posts={posts} stories={[...stories,...archive]}
+      postLikes={likes} postComments={comments}
+      storyLikes={storyLikes} storyViews={storyViews}
+      shares={contentShares} messages={directMessages} profiles={profiles}
+      onClose={()=>setInsightsTarget(null)} onOpenProfile={navigateProfile}
+    />
     {!!cameraTarget && <View style={styles.cameraOverlay}>
       <View style={styles.cameraTopBar}>
         <TouchableOpacity accessibilityLabel="Close camera" onPress={()=>setCameraTarget(null)} style={styles.cameraIconButton}><Ionicons name="close" size={28} color="#fff"/></TouchableOpacity>
