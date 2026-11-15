@@ -9,7 +9,8 @@
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Choose photos and save camera captures from Memento.",
         "NSCameraUsageDescription": "Take photos for Memento posts and stories.",
-        "NSPhotoLibraryAddUsageDescription": "Save photos captured in Memento to your photo library."
+        "NSPhotoLibraryAddUsageDescription": "Save photos captured in Memento to your photo library.",
+        "NSMicrophoneUsageDescription": "Record voice messages to send in Memento direct messages."
       }
     },
     "android": {
@@ -17,7 +18,12 @@
     },
     "plugins": [
       "expo-image-picker",
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Memento to record voice notes in messages."
+        }
+      ],
       "expo-video",
       "expo-camera",
       "expo-media-library"
