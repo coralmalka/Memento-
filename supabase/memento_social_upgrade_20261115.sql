@@ -65,7 +65,8 @@ begin
 
   if content is not null and content like '%@%' then
     for mention in
-      select distinct lower((regexp_matches(content, '@([A-Za-z0-9_]{3,24})', 'g'))[1]) as handle
+      select distinct lower(hit[1]) as handle
+      from regexp_matches(content, '@([A-Za-z0-9_]{3,24})', 'g') as hits(hit)
     loop
       select p.id into target_id from public.profiles p
       where lower(p.username) = mention.handle limit 1;
