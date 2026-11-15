@@ -31,7 +31,6 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
   const [pronouns, setPronouns] = useState(profile?.pronouns || '');
   const [website, setWebsite] = useState(profile?.website || '');
   const [instagram, setInstagram] = useState(profile?.instagram || '');
-  const [tiktok, setTiktok] = useState(profile?.tiktok || '');
   const [pickedPhoto, setPickedPhoto] = useState(null);
   const [removePhoto, setRemovePhoto] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -78,8 +77,8 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
     pronouns !== (profile?.pronouns || '') ||
     website !== (profile?.website || '') ||
     instagram !== (profile?.instagram || '') ||
-    tiktok !== (profile?.tiktok || '') || !!pickedPhoto || removePhoto,
-    [displayName,normalizedHandle,bio,category,pronouns,website,instagram,tiktok,pickedPhoto,removePhoto,profile]
+    !!pickedPhoto || removePhoto,
+    [displayName,normalizedHandle,bio,category,pronouns,website,instagram,pickedPhoto,removePhoto,profile]
   );
 
   async function save() {
@@ -88,9 +87,8 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
     if (availability === 'taken') return Alert.alert('Username already taken','Choose another username.');
     if (trimmed(displayName).length > 50) return Alert.alert('Display name','50 characters maximum.');
     if (trimmed(bio).length > 300) return Alert.alert('Bio','300 characters maximum.');
-    const ig = stripAt(instagram), tk = stripAt(tiktok);
+    const ig = stripAt(instagram);
     if (ig && !/^[a-z0-9._]{1,30}$/i.test(ig)) return Alert.alert('Instagram', 'Enter a valid Instagram username, without spaces.');
-    if (tk && !/^[a-z0-9._]{1,24}$/i.test(tk)) return Alert.alert('TikTok', 'Enter a valid TikTok username, without spaces.');
     let site = trimmed(website);
     if (site) {
       if (!/^https?:\/\//i.test(site)) site = 'https://' + site;
@@ -124,7 +122,6 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
         pronouns:trimmed(pronouns) || null,
         website:site || null,
         instagram:ig || null,
-        tiktok:tk || null,
         avatar_path:uploadedPath || (removePhoto ? null : profile?.avatar_path || null),
       };
       const {data,error} = await supabase.from('profiles').update(values).eq('id',user.id).select('*').single();
@@ -192,7 +189,6 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
     <View style={ui.sectionCard}>
       <Field label="Website" value={website} onChangeText={setWebsite} maxLength={200} autoCapitalize="none" keyboardType="url" placeholder="https://yoursite.com"/>
       <Field label="Instagram" value={instagram} onChangeText={setInstagram} maxLength={30} autoCapitalize="none" prefix="@" placeholder="instagram username"/>
-      <Field label="TikTok" value={tiktok} onChangeText={setTiktok} maxLength={24} autoCapitalize="none" prefix="@" placeholder="tiktok username"/>
       <Text style={ui.disclosure}>Your public profile shows these links. Leave them blank to hide them.</Text>
     </View>
 
