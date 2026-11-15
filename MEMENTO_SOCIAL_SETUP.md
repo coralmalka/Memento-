@@ -110,3 +110,7 @@ or Expo reports an issue. Keep your original Memento folder untouched.
   an older SQL file—use the latest file on GitHub.
 - Never paste a Supabase service-role or secret key into the client app or into
   a public GitHub repository.
+
+## GitHub build validation
+
+GitHub Actions runs `npm run check:syntax`, Expo SDK dependency checks, and iOS/Android JavaScript bundle checks for each new `main` commit. These are code/build checks, not a substitute for testing live Supabase, 2FA SMS delivery, or the app on physical devices.
