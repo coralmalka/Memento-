@@ -20,6 +20,7 @@ import ProfileEditor from './components/ProfileEditor';
 import AccountSettings from './components/AccountSettings';
 import ShareComposer from './components/ShareComposer';
 import ContentInsights from './components/ContentInsights';
+import SecurityGate from './components/SecurityGate';
 
 const RED = '#E4384F';
 // Original scalable Memento header glyphs based on the provided icon references.
@@ -194,24 +195,73 @@ function MusicComposer({ value, onChange }) {
 }
 
 function Auth({ onSuccess }) {
-  const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
-  const [register, setRegister] = useState(false); const [busy, setBusy] = useState(false);
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [phone,setPhone]=useState('');
+  const [register,setRegister]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [emailCode,setEmailCode]=useState('');
+  const [emailCodeSent,setEmailCodeSent]=useState(false);
+  const normalizedPhone=phone.replace(/[\s()-]/g,'');
   async function submit() {
-    if (!email.trim() || password.length < 6) return message('Enter an email and password of at least 6 characters.');
+    if (!email.trim() || (password.length<8)) return message('Enter an email and password of at least 8 characters.');
+    if(register && !/^\+[1-9]\d{7,14}$/.test(normalizedPhone)) return message('Enter your phone with country code, for example +12125550123.');
     setBusy(true);
-    const result = register ? await supabase.auth.signUp({ email: email.trim(), password }) : await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    setBusy(false);
-    if (result.error) message(result.error);
-    else if (register && !result.data.session) Alert.alert('Check your email', 'Confirm your email address, then sign in.');
-    else onSuccess?.();
+    try {
+      const result=register
+        ? await supabase.auth.signUp({email:email.trim(),password,options:{data:{
+            memento_phone_pending:normalizedPhone,memento_phone_required:true
+          }}})
+        : await supabase.auth.signInWithPassword({email:email.trim(),password});
+      if(result.error)throw result.error;
+      if(register && !result.data.session){
+        Alert.alert('Verify your email','Check your inbox to confirm your email, then sign in. New accounts will also verify their phone using a security code.');
+        setRegister(false);
+      } else onSuccess?.();
+    }catch(e){message(e);}
+    finally{setBusy(false);}
   }
-  return <SafeAreaView style={styles.safe}><View style={styles.auth}>
-    <Text style={styles.brand}>memento</Text><Text style={styles.subheading}>Your moments. Your people.</Text>
-    <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="Email" style={styles.field} />
-    <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="Password (6+ characters)" style={styles.field} />
-    <Button title={busy ? 'Please wait…' : register ? 'Create account' : 'Sign in'} disabled={busy} onPress={submit}/>
-    <Button secondary title={register ? 'Already have an account? Sign in' : 'New here? Create account'} onPress={() => setRegister(!register)}/>
-  </View></SafeAreaView>;
+  async function requestEmailCode(){
+    if(!email.trim())return message('Enter your email address first.');
+    setBusy(true);
+    try {
+      const {error}=await supabase.auth.signInWithOtp({email:email.trim(),options:{shouldCreateUser:false}});
+      if(error)throw error;
+      setEmailCodeSent(true);
+      Alert.alert('Email sent','Check your email for a sign-in link or verification code, depending on the Memento email template.');
+    }catch(e){message(e);}
+    finally{setBusy(false);}
+  }
+  async function verifyEmailCode(){
+    if(!emailCode.trim())return;
+    setBusy(true);
+    try{
+      const {error}=await supabase.auth.verifyOtp({email:email.trim(),token:emailCode.trim(),type:'email'});
+      if(error)throw error;
+      onSuccess?.();
+    }catch(e){message(e);}
+    finally{setBusy(false);}
+  }
+  return <SafeAreaView style={styles.safe}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.auth}>
+    <Text style={styles.brand}>memento</Text>
+    <Text style={styles.subheading}>{register?'Create a verified account.':'Sign in securely.'}</Text>
+    <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" placeholder="Email" style={styles.field}/>
+    <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="Password (8+ characters)" style={styles.field}/>
+    {register && <>
+      <TextInput value={phone} onChangeText={setPhone} autoCapitalize="none" keyboardType="phone-pad" placeholder="Mobile phone, with country code (+1…)" style={styles.field}/>
+      <Text style={styles.authHelper}>You'll confirm your email first, then receive an SMS security code to verify your phone. Your number won't appear on your public profile.</Text>
+    </>}
+    <Button title={busy?'Please wait…':register?'Create secure account':'Sign in'} disabled={busy} onPress={submit}/>
+    {!register && <>
+      <Button secondary title="Sign in with an email code or link" disabled={busy} onPress={requestEmailCode}/>
+      {emailCodeSent && <>
+        <TextInput value={emailCode} onChangeText={setEmailCode} keyboardType="number-pad" placeholder="Email code, if one was sent" style={styles.field}/>
+        <Button secondary title="Verify email code" disabled={busy||!emailCode.trim()} onPress={verifyEmailCode}/>
+      </>}
+    </>}
+    <Button secondary title={register?'Already have an account? Sign in':'New here? Create account'} onPress={()=>{setRegister(x=>!x);setEmailCodeSent(false);}}/>
+    <Text style={styles.authHelper}>Memento will never ask you to share a verification code in DMs.</Text>
+  </ScrollView></SafeAreaView>;
 }
 
 export default function App() {
@@ -1041,7 +1091,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   safe:{flex:1,backgroundColor:'#FFFFFF'},center:{flex:1,justifyContent:'center',alignItems:'center',backgroundColor:'#fff'},screen:{flex:1},
-  auth:{flex:1,justifyContent:'center',padding:26,gap:12},brand:{fontSize:30,fontWeight:'900',letterSpacing:-1.6,color:'#17191F'},subheading:{color:'#858A95',marginBottom:18},
+  auth:{flexGrow:1,justifyContent:'center',padding:26,gap:12},authHelper:{fontSize:12,color:'#505A69',lineHeight:19,fontWeight:'650',marginHorizontal:20,marginVertical:7},brand:{fontSize:30,fontWeight:'900',letterSpacing:-1.6,color:'#17191F'},subheading:{color:'#858A95',marginBottom:18},
   header:{height:65,paddingHorizontal:20,borderBottomWidth:1,borderColor:'#F1F1F4',flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:'#fff'},headerAction:{padding:8},headerRight:{fontSize:28,color:'#242830'},
   pageTitle:{fontSize:29,fontWeight:'800',letterSpacing:-1.0,color:'#17191F',marginHorizontal:20,marginTop:25},pageSubtitle:{fontSize:14,color:'#858B98',lineHeight:21,marginHorizontal:20,marginTop:5,marginBottom:22},
   section:{fontSize:17,fontWeight:'750',marginHorizontal:20,marginTop:23,marginBottom:12,color:'#20242B'},sectionRow:{marginHorizontal:20,marginTop:24,marginBottom:15,flexDirection:'row',justifyContent:'space-between',alignItems:'center'},sectionTitle:{fontSize:18,fontWeight:'800',color:'#20242B',letterSpacing:-.3},sectionHint:{fontSize:10,fontWeight:'700',letterSpacing:1.1,color:'#A2A6B1'},sectionLink:{fontSize:14,fontWeight:'800',color:RED},
