@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import { File } from 'expo-file-system';
 
 const ACCENT = '#E4384F';
 const INK = '#181B22';
@@ -10,7 +8,6 @@ const CATEGORIES = ['Personal', 'Artist', 'Music producer', 'Musician', 'Designe
 const STICKERS = ['🖤','✨','⭐','💿','🎧','🪩','🎀','🌙','💫','🔥','🦋','💌','🫶','🎶'];
 const trimmed = value => (value || '').trim();
 const stripAt = value => trimmed(value).replace(/^@+/, '');
-const publicAvatarUrl = (supabase, path) => path ? supabase.storage.from('profile-avatars').getPublicUrl(path).data.publicUrl : null;
 
 function Field({ label, value, onChangeText, placeholder, maxLength, multiline, hint, autoCapitalize = 'sentences', keyboardType = 'default', prefix }) {
   return <View style={ui.fieldBlock}>
@@ -33,12 +30,9 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
   const [website, setWebsite] = useState(profile?.website || '');
   const [instagram, setInstagram] = useState(profile?.instagram || '');
   const [tiktok, setTiktok] = useState(profile?.tiktok || '');
-  const [pickedPhoto, setPickedPhoto] = useState(null);
-  const [removedPhoto, setRemovedPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [availability, setAvailability] = useState('idle');
   const normalizedHandle = stripAt(handle).toLowerCase();
-  const avatarPreview = pickedPhoto?.uri || (!removedPhoto ? profile?.avatar_url : null);
   const validHandle = /^[a-z0-9_]{3,24}$/.test(normalizedHandle);
   const previewName = trimmed(displayName) || normalizedHandle || 'Your name';
 
@@ -56,16 +50,6 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
     return () => {active = false; clearTimeout(t);};
   }, [normalizedHandle, validHandle, profile?.username, user.id, supabase]);
 
-  async function chooseAvatar() {
-    try {
-      const res = await ImagePicker.launchImageLibraryAsync({mediaTypes:['images'],allowsEditing:true,aspect:[1,1],quality:0.85});
-      if (res.canceled || !res.assets?.[0]?.uri) return;
-      if (res.assets[0].fileSize > 5*1024*1024) throw Error('Choose a photo smaller than 5 MB.');
-      setPickedPhoto(res.assets[0]);
-      setRemovedPhoto(false);
-    } catch(e) {Alert.alert('Profile photo',e.message || String(e));}
-  }
-
   const changed = useMemo(() =>
     displayName !== (profile?.display_name || '') ||
     normalizedHandle !== (profile?.username || '').toLowerCase() ||
@@ -74,9 +58,8 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
     pronouns !== (profile?.pronouns || '') ||
     website !== (profile?.website || '') ||
     instagram !== (profile?.instagram || '') ||
-    tiktok !== (profile?.tiktok || '') ||
-    !!pickedPhoto || removedPhoto,
-    [displayName,normalizedHandle,bio,category,pronouns,website,instagram,tiktok,pickedPhoto,removedPhoto,profile]
+    tiktok !== (profile?.tiktok || ''),
+    [displayName,normalizedHandle,bio,category,pronouns,website,instagram,tiktok,profile]
   );
 
   async function save() {
@@ -98,17 +81,7 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
       } catch (_) {return Alert.alert('Website','Enter a valid website, like https://example.com');}
     }
     setSaving(true);
-    let uploaded = null;
     try {
-      if (pickedPhoto) {
-        const file = new File(pickedPhoto.uri);
-        if (file.size > 5 * 1024 * 1024) throw Error('The photo is over the 5 MB limit.');
-        const mime = pickedPhoto.mimeType || 'image/jpeg';
-        const suffix = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : mime === 'image/heic' ? 'heic' : 'jpg';
-        uploaded = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${suffix}`;
-        const {error} = await supabase.storage.from('profile-avatars').upload(uploaded, await file.arrayBuffer(), {contentType:mime,upsert:false});
-        if (error) throw error;
-      }
       const values = {
         username:normalizedHandle,
         display_name: trimmed(displayName) || null,
@@ -118,19 +91,13 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
         website:site || null,
         instagram:ig || null,
         tiktok:tk || null,
-        avatar_path:uploaded || (removedPhoto ? null : (profile?.avatar_path || null)),
       };
       const {data,error} = await supabase.from('profiles').update(values).eq('id',user.id).select('*').single();
       if (error) throw error;
-      // Remove the previous avatar only after the replacement or removal is saved.
-      if (profile?.avatar_path && (removedPhoto || uploaded) && profile.avatar_path.startsWith(user.id + '/')) {
-        supabase.storage.from('profile-avatars').remove([profile.avatar_path]).catch(()=>{});
-      }
-      await onSaved({...data,avatar_url:publicAvatarUrl(supabase,data.avatar_path)});
+      await onSaved(data);
     } catch (e) {
-      if (uploaded) supabase.storage.from('profile-avatars').remove([uploaded]).catch(()=>{});
       Alert.alert('Could not save profile', (e?.code === '23505' ? 'This username is already taken.' :
-        /column|schema cache|profile-avatars|bucket not found/i.test(e?.message || '') ?
+        /column|schema cache/i.test(e?.message || '') ?
         'Profile setup may be missing. Run the profile upgrade SQL in Supabase, then try again.\n\n' + e.message : e?.message || String(e)));
     } finally {setSaving(false);}
   }
@@ -141,23 +108,17 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
       <Text style={ui.pageKicker}>ACCOUNT / EDIT</Text>
     </View>
     <Text style={ui.title}>Make it yours.</Text>
-    <Text style={ui.subtitle}>An actual profile, not just a username.</Text>
+    <Text style={ui.subtitle}>Your name, your story, your links. Nothing extra.</Text>
 
     <View style={ui.previewCard}>
       <View style={ui.previewGlow}/>
       <View style={ui.previewKickerRow}><View style={ui.previewDot}/><Text style={ui.previewKicker}>LIVE PROFILE PREVIEW</Text></View>
       <View style={ui.previewIdentity}>
-        <View style={ui.avatarFrame}>{avatarPreview ? <Image source={{uri:avatarPreview}} style={ui.avatarImage}/> : <Text style={ui.avatarInitial}>{(previewName[0]||'M').toUpperCase()}</Text>}</View>
         <View style={{flex:1}}><Text numberOfLines={1} style={ui.previewName}>{previewName}</Text><Text numberOfLines={1} style={ui.previewHandle}>@{normalizedHandle || 'username'}</Text><Text style={ui.previewCategory}>{category}{trimmed(pronouns) ? ' · '+trimmed(pronouns) : ''}</Text></View>
       </View>
       {!!trimmed(bio) && <Text style={ui.previewBio} numberOfLines={3}>{bio}</Text>}
       <View style={ui.previewFooter}><Ionicons name="eye-outline" size={17} color="#E5E7EB"/><Text style={ui.previewFootText}>This is how others will see your profile.</Text></View>
     </View>
-    <View style={ui.photoActions}>
-      <TouchableOpacity onPress={chooseAvatar} style={ui.photoPrimary}><Ionicons name="images-outline" size={20} color="#fff"/><Text style={ui.photoPrimaryText}>{avatarPreview ? 'Change photo' : 'Add profile photo'}</Text></TouchableOpacity>
-      {!!avatarPreview && <TouchableOpacity onPress={()=>{setPickedPhoto(null);setRemovedPhoto(true);}} style={ui.photoSecondary}><Ionicons name="trash-outline" size={19} color={INK}/><Text style={ui.photoSecondaryText}>Remove</Text></TouchableOpacity>}
-    </View>
-
     <Text style={ui.sectionHeading}>01 / ABOUT YOU</Text>
     <View style={ui.sectionCard}>
       <Field label="Display name" value={displayName} onChangeText={setDisplayName} maxLength={50} placeholder="The name people know you by"/>
@@ -206,20 +167,12 @@ const ui = StyleSheet.create({
   previewDot:{width:7,height:7,borderRadius:4,backgroundColor:ACCENT},
   previewKicker:{color:'#F0F1F4',fontSize:10,letterSpacing:1.6,fontWeight:'900'},
   previewIdentity:{flexDirection:'row',alignItems:'center',gap:14},
-  avatarFrame:{width:78,height:78,borderRadius:39,backgroundColor:'#424753',borderWidth:2,borderColor:'#fff',alignItems:'center',justifyContent:'center',overflow:'hidden'},
-  avatarImage:{height:'100%',width:'100%'},
-  avatarInitial:{fontWeight:'900',fontSize:34,color:'#fff'},
   previewName:{color:'#fff',fontSize:21,fontWeight:'900',letterSpacing:-.4},
   previewHandle:{color:'#F1B7C1',fontWeight:'700',marginTop:3,fontSize:13},
   previewCategory:{color:'#E0E3E9',fontWeight:'700',marginTop:7,fontSize:12},
   previewBio:{color:'#FAFAFC',fontSize:14,lineHeight:21,marginTop:17,fontWeight:'500'},
   previewFooter:{flexDirection:'row',alignItems:'center',gap:8,borderTopWidth:1,borderTopColor:'#444853',marginTop:18,paddingTop:12},
   previewFootText:{color:'#E5E7EB',fontSize:11,fontWeight:'600'},
-  photoActions:{flexDirection:'row',gap:10,marginTop:13,marginBottom:13},
-  photoPrimary:{flex:1,backgroundColor:'#282C35',borderRadius:14,paddingHorizontal:15,paddingVertical:15,flexDirection:'row',justifyContent:'center',alignItems:'center',gap:7},
-  photoPrimaryText:{color:'#fff',fontWeight:'800',fontSize:13},
-  photoSecondary:{backgroundColor:'#fff',borderRadius:14,paddingHorizontal:14,flexDirection:'row',alignItems:'center',gap:6,borderWidth:1,borderColor:'#C4C9D2'},
-  photoSecondaryText:{color:INK,fontWeight:'800',fontSize:13},
   sectionHeading:{fontSize:13,letterSpacing:1.6,fontWeight:'900',color:'#272B34',marginTop:23,marginBottom:10,marginLeft:2},
   sectionCard:{backgroundColor:'#fff',borderWidth:1,borderColor:'#DDE0E6',borderRadius:20,padding:16,gap:1},
   fieldBlock:{marginBottom:17},
