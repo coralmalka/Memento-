@@ -23,6 +23,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Check all JavaScript and JSX syntax
         run: npm run check:syntax
+      - name: Test story filters and private audience rules
+        run: npm run test:stories
       - name: Check Expo SDK dependencies
         run: npx expo install --check
       - name: Bundle Expo for iOS

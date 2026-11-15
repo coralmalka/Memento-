@@ -5,6 +5,9 @@ const parser = require('@babel/parser');
 
 const files = [
   'App.js',
+  'components/StoryPhotoEditor.js',
+  'components/CloseFriendsPicker.js',
+  'lib/storyEdits.js',
   'components/ProfileEditor.js',
   'components/AccountSettings.js',
   'components/SecurityGate.js',

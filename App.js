@@ -21,6 +21,9 @@ import AccountSettings from './components/AccountSettings';
 import ShareComposer from './components/ShareComposer';
 import ContentInsights from './components/ContentInsights';
 import SecurityGate from './components/SecurityGate';
+import StoryPhotoEditor from './components/StoryPhotoEditor';
+import CloseFriendsPicker from './components/CloseFriendsPicker';
+import { DEFAULT_EDITS } from './lib/storyEdits';
 
 const RED = '#E4384F';
 // Original scalable Memento header glyphs based on the provided icon references.
@@ -274,6 +277,14 @@ export default function App() {
   const [seenProfile, setSeenProfile] = useState(null); const [search, setSearch] = useState('');
   const [searchType, setSearchType] = useState('people'); const [caption, setCaption] = useState('');
   const [photoUri, setPhotoUri] = useState(null); const [storyPhoto, setStoryPhoto] = useState(null);
+  const storyEditorRef = useRef(null);
+  const [storyEdits, setStoryEdits] = useState({...DEFAULT_EDITS});
+  const [closeFriends, setCloseFriends] = useState([]);
+  const [closeFriendsReady, setCloseFriendsReady] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
+  const [friendsBusy, setFriendsBusy] = useState(false);
+  const storySaving = useRef(false);
+  useEffect(() => { setStoryEdits({...DEFAULT_EDITS}); }, [storyPhoto]);
   const cameraRef = useRef(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [cameraTarget, setCameraTarget] = useState(null);
@@ -566,13 +577,13 @@ export default function App() {
   const searchTag = tag => { setSearchType('tags'); setSearch(tag); setTab('explore'); setViewer(null); };
   const findHashtag = (text, q) => new RegExp(`(^|[^\\p{L}\\p{N}_])#${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_])`, 'iu').test(text || '');
 
-  async function musicFields(selected) {
+  async function musicFields(selected, closeOnly = false) {
     const mode = selected?.mode || 'none';
     if (mode === 'none') return {music_url:null,music_provider:null,music_title:null,music_artist:null,original_audio_path:null};
     if (mode === 'original') {
       if (!selected.file) throw Error('Choose your original audio file first.');
       if (!selected.title?.trim()) throw Error('Give your original audio a track title.');
-      const path = await uploadOriginalAudio(me, selected.file);
+      const path = await uploadOriginalAudio(me, selected.file, closeOnly);
       return {music_url:null,music_provider:'original',music_title:selected.title.trim(),music_artist:selected.artist?.trim()||username(mine),original_audio_path:path};
     }
     if (!selected.url?.trim() || providerFor(selected.url.trim()) !== mode) throw Error('Paste an official track URL for the selected music provider.');
@@ -586,13 +597,53 @@ export default function App() {
     setCaption(''); setPhotoUri(null); setPostMusic({mode:'none'}); setLocationLabel(''); setLocationOn(false); setTab('home');
     if (publishTo !== 'memento') Alert.alert('Saved to Memento', 'This post is saved on Memento. External sharing must be completed through the destination app; it was not automatically published there.');
   }); }
-  async function saveStory(published) { await run(async () => {
-    const music = await musicFields(storyMusic);
-    const path = await imagePath(storyPhoto);
-    await table('stories', { author_id: me, image_path: path, caption: storyCaption.trim(), published_at: published ? new Date().toISOString() : null, expires_at: published ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null, ...music, location_label: storyLocationOn ? (storyLocationLabel.trim() || null) : null });
-    setStoryPhoto(null); setStoryCaption(''); setStoryMusic({mode:'none'}); setStoryLocationLabel(''); setStoryLocationOn(false); setTab('profile'); setSeenProfile(me);
-    Alert.alert(published ? 'Story published' : 'Story archived', published ? 'Visible to signed-in members for 24 hours. Also saved in your private archive.' : 'Only you can see this until you publish it or add it to a public collection.');
-  }); }
+  async function loadCloseFriends() {
+    if (!me) return;
+    const {data,error} = await supabase.from('close_friends').select('friend_id').eq('owner_id',me);
+    setCloseFriendsReady(!error);
+    if(!error)setCloseFriends((data||[]).map(row=>row.friend_id));
+  }
+  useEffect(()=>{setCloseFriends([]);setCloseFriendsReady(false);setFriendsOpen(false);if(me)loadCloseFriends();},[me]);
+  async function toggleCloseFriend(id) {
+    if(friendsBusy)return;
+    setFriendsBusy(true);
+    try {
+      const remove=closeFriends.includes(id);
+      const {error}=remove ? await supabase.from('close_friends').delete().eq('owner_id',me).eq('friend_id',id)
+        : await supabase.from('close_friends').insert({owner_id:me,friend_id:id});
+      if(error)throw error;
+      await loadCloseFriends();
+    } catch(e){message(e);} finally {setFriendsBusy(false);}
+  }
+  async function saveStory(published, audience = 'public') {
+    if(storySaving.current || busy)return;
+    const closeOnly=audience==='close_friends';
+    if(closeOnly && !closeFriendsReady)return Alert.alert('Close Friends setup needed','Run the story editor SQL setup from this update before sharing privately.');
+    if(closeOnly && !closeFriends.length){setFriendsOpen(true);return;}
+    storySaving.current=true;
+    try { await run(async () => {
+      let exported, path, music, inserted=false;
+      try {
+        if(!storyEditorRef.current)throw Error('Choose a photo first.');
+        exported=await storyEditorRef.current.exportImage();
+        music=await musicFields(storyMusic,closeOnly);
+        path=await uploadImage(me,exported.uri,closeOnly);
+        const payload={author_id:me,image_path:path,caption:storyCaption.trim(),published_at:published?new Date().toISOString():null,expires_at:published?new Date(Date.now()+DAY_MS).toISOString():null,...music,location_label:storyLocationOn?(storyLocationLabel.trim()||null):null};
+        // Older databases still support public stories; private sharing never falls back to public.
+        if(closeOnly)payload.audience='close_friends';
+        await table('stories',payload);
+        inserted=true;
+        setStoryPhoto(null);setStoryCaption('');setStoryMusic({mode:'none'});setStoryLocationLabel('');setStoryLocationOn(false);setTab('home');
+        Alert.alert(published?'Story shared':'Story archived',closeOnly?'Shared only with your Close Friends for 24 hours.':published?'Visible to signed-in members for 24 hours.':'Saved to your private archive.');
+      } finally {
+        if(exported?.exists)exported.delete();
+        if(!inserted){
+          if(path)await supabase.storage.from(closeOnly?'memento-close-friends':'memories').remove([path]).catch(()=>{});
+          if(music?.original_audio_path)await supabase.storage.from(closeOnly?'memento-close-friends':'original-audio').remove([music.original_audio_path]).catch(()=>{});
+        }
+      }
+    }); } finally {storySaving.current=false;}
+  }
   async function follow(id) { await run(async () => {
     const old = follows.some(f => f.followed_id === id);
     const q = old ? supabase.from('follows').delete().eq('follower_id', me).eq('followed_id', id) : supabase.from('follows').insert({ follower_id: me, followed_id: id });
@@ -728,6 +779,7 @@ export default function App() {
   }); }
   const shareOptions = (kind,item) => {
     if (!item) return;
+    if (item.audience==='close_friends') return Alert.alert('Private story','Close Friends stories cannot be reshared.');
     setShareTarget({kind,item});
   };
   async function repostShared(targetDestination) {
@@ -807,10 +859,10 @@ export default function App() {
   const followerCount = follows.filter(f => f.followed_id === profileId).length; // Only reflects loaded follows; use a count query for global counts.
   const myCollections = collections.filter(c => c.author_id === profileId && (owns || c.visibility === 'public'));
   const feed = posts.filter(p => !p.archived && (p.author_id === me || follows.some(f => f.followed_id === p.author_id)));
-  const relevantStories = stories.filter(s => s.author_id === me || follows.some(f => f.followed_id === s.author_id));
+  const relevantStories = stories.filter(s => s.audience === 'close_friends' || s.author_id === me || follows.some(f => f.followed_id === s.author_id));
   const currentCollection = collections.find(c => c.id === viewer?.collectionId);
   const selectedStories = viewer?.collectionId ? collectionItems.filter(x => x.collection_id === viewer.collectionId).map(x => [...archive, ...stories, ...sharedStories].find(s => s.id === x.story_id)).filter(Boolean) : [];
-  const viewStory = viewer?.story || selectedStories[viewer?.index || 0];
+  const viewStory = viewer?.story ? [...stories,...archive,...sharedStories].find(s=>s.id===viewer.story.id) : selectedStories[viewer?.index || 0];
   const detailPost = posts.find(p=>p.id===selectedPostId);
   const storyOwnerSettings=accountSettingRows.find(x=>x.user_id===viewStory?.author_id) || {};
   const canReplyToStory = viewStory?.author_id!==me &&
@@ -863,7 +915,7 @@ export default function App() {
           <TouchableOpacity onPress={() => goTab('story')} style={styles.storyChip}>
             <View style={[styles.storyBubble,styles.yourStory]}><Text style={styles.storyPlus}>+</Text></View><Text style={styles.storyLabel}>Your story</Text>
           </TouchableOpacity>
-          {relevantStories.map(s => <TouchableOpacity key={s.id} onPress={() => setViewer({story:s})} style={styles.storyChip}><View style={styles.storyRing}><Photo uri={s.image_url} style={styles.storyPhoto}/></View><Text numberOfLines={1} style={styles.storyLabel}>{username(profiles.find(p => p.id === s.author_id))}</Text></TouchableOpacity>)}
+          {relevantStories.map(s => <TouchableOpacity key={s.id} onPress={() => setViewer({story:s})} style={styles.storyChip}><View style={[styles.storyRing,s.audience==='close_friends'&&{borderColor:'#209C66'}]}><Photo uri={s.image_url} style={styles.storyPhoto}/></View><Text numberOfLines={1} style={styles.storyLabel}>{username(profiles.find(p => p.id === s.author_id))}</Text></TouchableOpacity>)}
         </ScrollView>
         {feed.length === 0 && <View style={styles.emptyState}><Text style={styles.emptyIcon}>▧</Text><Text style={styles.emptyTitle}>No posts yet</Text><Text style={styles.emptyDescription}>Follow people in Explore or share your first photo to start making memories.</Text><TouchableOpacity style={styles.primaryPill} onPress={() => goTab('explore')}><Text style={styles.primaryPillText}>Find people</Text></TouchableOpacity></View>}
         {feed.map(p => <View key={p.id} style={styles.post}>
@@ -962,14 +1014,18 @@ export default function App() {
       </>}
       {tab === 'story' && <>
         <Text style={styles.pageTitle}>Your story</Text><Text style={styles.pageSubtitle}>Share for 24 hours or keep it in your private archive.</Text>
-        <TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.uploadCard}>{storyPhoto ? <OriginalFrame uri={storyPhoto}/> : <View style={styles.storyUploadPreview}/>}{!storyPhoto && <View style={styles.uploadOverlay}><Text style={styles.uploadIcon}>＋</Text><Text style={styles.uploadHeading}>Add to your story</Text><Text style={styles.uploadHelp}>Choose a photo to get started</Text></View>}</TouchableOpacity>
+        {storyPhoto ? <StoryPhotoEditor key={storyPhoto} ref={storyEditorRef} uri={storyPhoto} edits={storyEdits} onChange={setStoryEdits} disabled={busy}/> : <TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.uploadCard}><View style={styles.storyUploadPreview}/><View style={styles.uploadOverlay}><Ionicons name="aperture-outline" size={44} color="#6151AF"/><Text style={styles.uploadHeading}>Create your story</Text><Text style={styles.uploadHelp}>Take a photo or choose one to edit</Text></View></TouchableOpacity>}
         <View style={styles.mediaActions}><TouchableOpacity onPress={()=>openCamera('story')} style={styles.mediaAction}><Ionicons name="camera-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Camera</Text></TouchableOpacity><TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.mediaAction}><Ionicons name="images-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Photo library</Text></TouchableOpacity></View>
         <TextInput style={styles.field} value={storyCaption} onChangeText={setStoryCaption} maxLength={2200} placeholder="Add a caption... tag @username" placeholderTextColor="#A0A4AE"/>
         <StickerPicker onPick={sticker=>setStoryCaption(value=>(value + (value && !value.endsWith(' ') ? ' ' : '') + sticker).slice(0,2200))}/>
         <MusicComposer value={storyMusic} onChange={setStoryMusic}/>
         <Mini onPress={()=>setStoryLocationOn(!storyLocationOn)}>{storyLocationOn?'☑':'□'} Add optional story location</Mini>
         {storyLocationOn && <><TextInput style={styles.field} value={storyLocationLabel} onChangeText={setStoryLocationLabel} placeholder="Optional city/place"/><Mini onPress={()=>useLocation(setStoryLocationLabel)}>Use my current city (permission requested)</Mini></>}
-        <Button title="Share to story · 24 hours" disabled={busy || !storyPhoto} onPress={()=>saveStory(true)}/>
+        <View style={{flexDirection:'row',gap:10,padding:18}}>
+          <TouchableOpacity accessibilityRole="button" disabled={busy||!storyPhoto} onPress={()=>saveStory(true,'public')} style={{flex:1,alignItems:'center',gap:7,padding:16,borderRadius:18,backgroundColor:'#292D3D',opacity:busy||!storyPhoto?0.6:1}}><Ionicons name="planet-outline" size={28} color="#fff"/><Text style={{color:'#fff',fontWeight:'800'}}>Your Story</Text><Text style={{color:'#D3D6E3',fontSize:11}}>Public · 24 hours</Text></TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" disabled={busy||!storyPhoto} onPress={()=>saveStory(true,'close_friends')} style={{flex:1,alignItems:'center',gap:7,padding:16,borderRadius:18,backgroundColor:'#16764D',opacity:busy||!storyPhoto?0.6:1}}><Ionicons name="star" size={28} color="#CBFF8D"/><Text style={{color:'#fff',fontWeight:'800'}}>Close Friends</Text><Text style={{color:'#DEF3E8',fontSize:11}}>Private · 24 hours</Text></TouchableOpacity>
+        </View>
+        <TouchableOpacity disabled={busy} onPress={()=>{if(!closeFriendsReady){loadCloseFriends();Alert.alert('Close Friends setup','If the list cannot load, run the story editor SQL setup from this update first.');}setFriendsOpen(true);}} style={{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,padding:12}}><Ionicons name="people-circle-outline" size={24} color="#197A50"/><Text style={{color:'#197A50',fontWeight:'700'}}>Edit Close Friends · {closeFriends.length}</Text></TouchableOpacity>
         <Button title="Save to private archive" secondary disabled={busy || !storyPhoto} onPress={()=>saveStory(false)}/>
       </>}
       {tab==='profile' && <>
@@ -1014,12 +1070,13 @@ export default function App() {
         <Text style={styles.section}>Visibility</Text><View style={styles.row}><Button secondary title={editorVisibility==='private'?'✓ Private':'Private'} onPress={()=>setEditorVisibility('private')}/><Button secondary title={editorVisibility==='public'?'✓ Public':'Public'} onPress={()=>setEditorVisibility('public')}/></View>
         <Text style={styles.note}>Public collections can show archived stories you add to them to other Memento members.</Text>
         <Text style={styles.section}>Cover</Text><Text style={styles.action} onPress={chooseCover}>Choose custom photo cover</Text>
-        <Text style={styles.section}>Select archived stories · {editorStoryIds.length} selected</Text><View style={styles.grid}>{archive.map(s=><TouchableOpacity key={s.id} style={styles.tile} onPress={()=>{setEditorStoryIds(old=>old.includes(s.id)?old.filter(id=>id!==s.id):[...old,s.id]);if(!editorCoverPath)setEditorCoverPath(s.image_path);}}><Photo uri={s.image_url} style={[styles.tileImage,editorStoryIds.includes(s.id)&&{borderWidth:4,borderColor:RED}]}/><Text style={styles.tiny}>{editorStoryIds.includes(s.id)?'✓ Selected':'Tap to add'}</Text><Text style={styles.action} onPress={()=>setEditorCoverPath(s.image_path)}>Use as cover</Text></TouchableOpacity>)}</View>
+        <Text style={styles.section}>Select archived stories · {editorStoryIds.length} selected</Text><View style={styles.grid}>{archive.filter(s=>s.audience!=='close_friends').map(s=><TouchableOpacity key={s.id} style={styles.tile} onPress={()=>{setEditorStoryIds(old=>old.includes(s.id)?old.filter(id=>id!==s.id):[...old,s.id]);if(!editorCoverPath)setEditorCoverPath(s.image_path);}}><Photo uri={s.image_url} style={[styles.tileImage,editorStoryIds.includes(s.id)&&{borderWidth:4,borderColor:RED}]}/><Text style={styles.tiny}>{editorStoryIds.includes(s.id)?'✓ Selected':'Tap to add'}</Text><Text style={styles.action} onPress={()=>setEditorCoverPath(s.image_path)}>Use as cover</Text></TouchableOpacity>)}</View>
         <Button title={busy?'Saving…':'Save collection'} disabled={busy} onPress={saveCollection}/>{editor!=='new'&&<Button secondary title="Delete collection" onPress={()=>deleteCollection(editor)}/>}<Button secondary title="Cancel" onPress={()=>{setEditor(null);setTab('profile');}}/>
       </>}
       {tab==='view' && viewer && <>
         <Text style={styles.pageTitle}>{currentCollection?.title||'Story'}</Text>
         {!!viewStory && <>
+          {viewStory.audience==='close_friends'&&<Text style={{color:'#197A50',fontWeight:'800',padding:16}}>★ Close Friends · private story</Text>}
           <OriginalFrame uri={viewStory.image_url}/>
           {!!viewStory.location_label && <Text style={styles.locationText}>⌖ {viewStory.location_label}</Text>}
           <MusicDisplay item={viewStory}/>
@@ -1029,7 +1086,7 @@ export default function App() {
               <Ionicons name={storyLikes.some(x=>x.story_id===viewStory.id&&x.user_id===me)?'heart':'heart-outline'} size={27} color={storyLikes.some(x=>x.story_id===viewStory.id&&x.user_id===me)?RED:'#242933'}/>
               <Text style={styles.storyActionLabel}>Like</Text>
             </TouchableOpacity>}
-            {storyIsActive && (viewStory.author_id===me || storyOwnerSettings.allow_story_reshares!==false) && <TouchableOpacity accessibilityLabel="Share story" style={styles.storyIconButton} onPress={()=>shareOptions('story',viewStory)}>
+            {storyIsActive && viewStory.audience!=='close_friends' && (viewStory.author_id===me || storyOwnerSettings.allow_story_reshares!==false) && <TouchableOpacity accessibilityLabel="Share story" style={styles.storyIconButton} onPress={()=>shareOptions('story',viewStory)}>
               <Ionicons name="paper-plane-outline" size={25} color="#242933"/><Text style={styles.storyActionLabel}>Share</Text>
             </TouchableOpacity>}
             {viewStory.author_id===me && <TouchableOpacity accessibilityLabel="Story insights" style={styles.storyIconButton} onPress={()=>setInsightsTarget({kind:'story',item:viewStory})}>
@@ -1091,6 +1148,7 @@ export default function App() {
       shares={contentShares} messages={directMessages} profiles={profiles}
       onClose={()=>setInsightsTarget(null)} onOpenProfile={navigateProfile}
     />
+    <CloseFriendsPicker visible={friendsOpen} onClose={()=>setFriendsOpen(false)} userId={me} selected={closeFriends} onToggle={toggleCloseFriend} busy={friendsBusy}/>
     {!!cameraTarget && <View style={styles.cameraOverlay}>
       <View style={styles.cameraTopBar}>
         <TouchableOpacity accessibilityLabel="Close camera" onPress={()=>setCameraTarget(null)} style={styles.cameraIconButton}><Ionicons name="close" size={28} color="#fff"/></TouchableOpacity>
