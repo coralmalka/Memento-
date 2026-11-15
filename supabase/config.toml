@@ -1,0 +1,5 @@
+# Memento Supabase Edge Function: cron-only security alerts.
+# The endpoint has no public JWT authorization; a private CRON_SECRET is checked
+# inside the function. Never pass this secret to a mobile app.
+[functions.memento-login-alerts]
+verify_jwt = false
