@@ -701,10 +701,12 @@ export default function App() {
 
   return <SafeAreaView style={styles.safe}><StatusBar barStyle="dark-content" backgroundColor="#fff"/>
     <View style={styles.header}>
-      <Text style={styles.brand}>memento<Text style={{color: RED}}>.</Text></Text>
-      <View style={{flexDirection:'row',alignItems:'center',gap:12}}>
-        <TouchableOpacity onPress={()=>openCamera('post')} accessibilityRole="button" accessibilityLabel="Camera to post" style={styles.headerAction}><Ionicons name="camera-outline" size={27} color="#242830"/>{cameraPermissionDenied && <View style={styles.cameraDeniedSlash}/>}</TouchableOpacity>
+      <View style={{flexDirection:'row',alignItems:'center',gap:7}}>
+        <TouchableOpacity onPress={()=>openCamera('post')} accessibilityRole="button" accessibilityLabel="Camera to post" style={styles.headerAction}><Ionicons name="camera-outline" size={27} color="#242830"/>{(cameraPermissionDenied || cameraPermission?.status === 'denied') && <View style={styles.cameraDeniedSlash}/>}</TouchableOpacity>
         <TouchableOpacity onPress={()=>goTab('reposts')} accessibilityRole="button" accessibilityLabel="My reposts" style={styles.headerAction}><Ionicons name="repeat-outline" size={27} color="#242830"/></TouchableOpacity>
+      </View>
+      <Text style={[styles.brand,styles.headerBrand]}>memento<Text style={{color: RED}}>.</Text></Text>
+      <View style={{flexDirection:'row',alignItems:'center',gap:4}}>
         <TouchableOpacity onPress={()=>goTab('inbox')} accessibilityRole="button" accessibilityLabel="Direct messages" style={styles.headerAction}><Ionicons name="paper-plane-outline" size={24} color="#242830"/></TouchableOpacity>
         <TouchableOpacity onPress={()=>goTab('settings')} accessibilityRole="button" accessibilityLabel="Settings" style={styles.headerAction}><Ionicons name="settings-outline" size={24} color="#242830"/></TouchableOpacity>
         <TouchableOpacity onPress={openActivity} accessibilityRole="button" accessibilityLabel="Notifications" style={styles.headerAction}><Ionicons name="notifications-outline" size={27} color="#242830"/>{activity.some(n=>!n.read_at) && <View style={styles.notificationDot}/>}</TouchableOpacity>
@@ -736,7 +738,8 @@ export default function App() {
              </View>
            </View>}
           <MusicDisplay item={p}/>
-          <View style={styles.postCaptionRow}><Text style={styles.postHandle}>{username(profiles.find(x => x.id === p.author_id))} </Text><HashtagText onHashtag={searchTag} style={styles.caption}>{p.caption}</HashtagText></View>{commenting===p.id && <View style={styles.commentsBox}>{comments.filter(c=>c.post_id===p.id).map(c=><Text key={c.id} style={styles.commentLine}><Text style={{fontWeight:'800'}}>@{username(profiles.find(x=>x.id===c.author_id))} </Text>{c.body}</Text>)}<TextInput style={styles.commentField} placeholder="Write a comment..." value={commentDraft} onChangeText={setCommentDraft} maxLength={500} /><Button title="Post comment" onPress={()=>addComment(p.id)} disabled={!commentDraft.trim()||busy}/></View>}<Text style={styles.postDate}>{new Date(p.created_at).toLocaleDateString()}</Text>
+          <View style={styles.postCaptionRow}><Text style={styles.postHandle}>{username(profiles.find(x => x.id === p.author_id))} </Text><HashtagText onHashtag={searchTag} style={styles.caption}>{p.caption}</HashtagText></View>{commenting===p.id && <View style={styles.commentsBox}>{comments.filter(c=>c.post_id===p.id).map(c=><Text key={c.id} style={styles.commentLine}><Text style={{fontWeight:'800'}}>@{username(profiles.find(x=>x.id===c.author_id))} </Text>{(c.body||'').split(/(@[a-z0-9_]{3,24})/gi).map((segment,i)=>segment.startsWith('@') && profiles.some(person=>person.username?.toLowerCase()===segment.slice(1).toLowerCase()) ? <Text key={i} onPress={()=>navigateProfile(profiles.find(person=>person.username?.toLowerCase()===segment.slice(1).toLowerCase()).id)} style={{color:RED,fontWeight:'800'}}>{segment}</Text> : segment)}</Text>)}<TextInput style={styles.commentField} placeholder="Write a comment... tag @username" value={commentDraft} onChangeText={setCommentDraft} maxLength={500} />
+          {/@[a-z0-9_]*$/i.test(commentDraft) && <ScrollView horizontal style={{maxHeight:52}}>{profiles.filter(person=>person.id!==me && person.username?.toLowerCase().startsWith((commentDraft.match(/@([a-z0-9_]*)$/i)||[])[1]?.toLowerCase()||'')).slice(0,8).map(person=><TouchableOpacity key={person.id} style={styles.mentionSuggestion} onPress={()=>setCommentDraft(value=>value.replace(/@[a-z0-9_]*$/i,`@${person.username} `))}><Text style={styles.mentionSuggestionText}>@{person.username}</Text></TouchableOpacity>)}</ScrollView>}<Button title="Post comment" onPress={()=>addComment(p.id)} disabled={!commentDraft.trim()||busy}/></View>}<Text style={styles.postDate}>{new Date(p.created_at).toLocaleDateString()}</Text>
         </View>)}
       </>}
       {sharePost && <View style={styles.shareSheet}><Text style={styles.sectionTitle}>Share post</Text><Text style={styles.note}>Choose exactly where it goes. External sharing opens the destination or system share sheet; it does not silently publish.</Text><Mini onPress={()=>nativeRepost(sharePost,false)}>⇄ Repost to my Memento page</Mini><Mini onPress={()=>nativeRepost(sharePost,true)}>◌ Repost to my Memento story</Mini><Mini onPress={()=>externalShare(sharePost,'x')}>𝕏 Compose on X / Twitter</Mini><Mini onPress={()=>externalShare(sharePost,'instagram')}>◎ Open system share sheet for Instagram</Mini><Mini onPress={()=>setSharePost(null)}>Cancel</Mini></View>}
@@ -812,7 +815,7 @@ export default function App() {
         <Text style={styles.pageTitle}>Your story</Text><Text style={styles.pageSubtitle}>Share for 24 hours or keep it in your private archive.</Text>
         <TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.uploadCard}>{storyPhoto ? <OriginalFrame uri={storyPhoto}/> : <View style={styles.storyUploadPreview}/>}{!storyPhoto && <View style={styles.uploadOverlay}><Text style={styles.uploadIcon}>＋</Text><Text style={styles.uploadHeading}>Add to your story</Text><Text style={styles.uploadHelp}>Choose a photo to get started</Text></View>}</TouchableOpacity>
         <View style={styles.mediaActions}><TouchableOpacity onPress={()=>openCamera('story')} style={styles.mediaAction}><Ionicons name="camera-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Camera</Text></TouchableOpacity><TouchableOpacity onPress={()=>selectPhoto(setStoryPhoto)} style={styles.mediaAction}><Ionicons name="images-outline" size={21} color="#272B34"/><Text style={styles.mediaActionText}>Photo library</Text></TouchableOpacity></View>
-        <TextInput style={styles.field} value={storyCaption} onChangeText={value=>{if(storyCaption.length<=220 && value.length>220) maybeRoast('paragraph', .9);setStoryCaption(value);}} maxLength={2200} placeholder="Add a caption..." placeholderTextColor="#A0A4AE"/>
+        <TextInput style={styles.field} value={storyCaption} onChangeText={value=>{if(storyCaption.length<=220 && value.length>220) maybeRoast('paragraph', .9);setStoryCaption(value);}} maxLength={2200} placeholder="Add a caption... tag @username" placeholderTextColor="#A0A4AE"/>
         <StickerPicker onPick={sticker=>setStoryCaption(value=>(value + (value && !value.endsWith(' ') ? ' ' : '') + sticker).slice(0,2200))}/>
         <MusicComposer value={storyMusic} onChange={setStoryMusic}/>
         <Mini onPress={()=>setStoryLocationOn(!storyLocationOn)}>{storyLocationOn?'☑':'□'} Add optional story location</Mini>
@@ -937,6 +940,9 @@ const styles = StyleSheet.create({
   roastFloatEyebrow:{color:'#A9B0BC',fontSize:10,fontWeight:'850',letterSpacing:0.75,marginBottom:5},
   roastFloatText:{color:'#FFFFFF',fontSize:15,fontWeight:'800',lineHeight:21},
   notificationDot:{position:'absolute',top:3,right:3,width:9,height:9,borderRadius:5,backgroundColor:RED},
+  headerBrand:{position:'absolute',left:'38%',fontSize:21,letterSpacing:-1.4},
+  mentionSuggestion:{paddingVertical:10,paddingHorizontal:13,marginHorizontal:3,backgroundColor:'#F1F2F5',borderRadius:12},
+  mentionSuggestionText:{fontSize:13,fontWeight:'800',color:'#2B303A'},
   cameraDeniedSlash:{position:'absolute',top:19,left:3,width:35,height:3,backgroundColor:RED,transform:[{rotate:'-45deg'}]},
   cameraNoAccess:{flex:1,alignItems:'center',justifyContent:'center',padding:20},
   cameraBan:{position:'absolute',top:'35%',left:'50%'},
