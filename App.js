@@ -337,9 +337,21 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) { setBooting(false); return; }
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setBooting(false); });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
-    return () => subscription.unsubscribe();
+    let active = true;
+    // Restore the saved Supabase session before showing the sign-in screen.
+    // The client uses persistent AsyncStorage and refreshes tokens automatically.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => {
+      if (active) { setSession(next); setBooting(false); }
+    });
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) console.warn('Memento session restore:', error.message);
+      setSession(data?.session ?? null);
+      setBooting(false);
+    }).catch(error => {
+      if (active) { console.warn('Memento session restore:', error?.message || error); setBooting(false); }
+    });
+    return () => { active = false; subscription.unsubscribe(); };
   }, []);
 
   const hydrateImages = async rows => Promise.all((rows || []).map(async r => ({ ...r,
