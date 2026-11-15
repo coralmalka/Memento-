@@ -266,6 +266,7 @@ function Auth({ onSuccess }) {
 
 export default function App() {
   const [session, setSession] = useState(null); const [booting, setBooting] = useState(true);
+  const [mfaStatus,setMfaStatus]=useState('checking');
   const [tab, setTab] = useState('home'); const [profiles, setProfiles] = useState([]);
   const [posts, setPosts] = useState([]); const [stories, setStories] = useState([]);
   const [archive, setArchive] = useState([]); const [sharedStories, setSharedStories] = useState([]); const [collections, setCollections] = useState([]);
@@ -379,6 +380,29 @@ export default function App() {
     });
     return () => { active = false; subscription.unsubscribe(); };
   }, []);
+
+  // Gate the UI on Supabase's actual authenticator assurance level (AAL2).
+  // A remembered password session is not enough to bypass an enrolled factor.
+  useEffect(()=>{
+    if(!session?.user?.id || !supabase){setMfaStatus('checking');return;}
+    let active=true;
+    setMfaStatus('checking');
+    (async()=>{
+      try {
+        const {data,error}=await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        if(error)throw error;
+        if(!active)return;
+        if(data.currentLevel==='aal2')setMfaStatus('ok');
+        else if(data.nextLevel==='aal2')setMfaStatus('challenge');
+        else if(session.user.user_metadata?.memento_phone_required) setMfaStatus('enroll');
+        else setMfaStatus('ok'); // Existing accounts should enroll from Security settings.
+      } catch(e){
+        console.warn('Memento security check:',e?.message||e);
+        if(active)setMfaStatus('challenge'); // Fail closed if the security check fails.
+      }
+    })();
+    return ()=>{active=false;};
+  },[session?.user?.id,session?.access_token]);
 
   const hydrateImages = async rows => Promise.all((rows || []).map(async r => ({ ...r,
     image_url: r.image_path ? await signedImage(r.image_path) : null,
@@ -800,6 +824,8 @@ export default function App() {
   if (!configured) return <SafeAreaView style={styles.safe}><View style={styles.auth}><Text style={styles.brand}>memento</Text><Text style={styles.title}>Backend setup needed</Text><Text style={styles.note}>Add your Supabase URL and publishable key to .env, then run the SQL in supabase/schema.sql. Follow README.md. Never use a secret or service-role key in the app.</Text></View></SafeAreaView>;
   if (booting) return <SafeAreaView style={styles.center}><ActivityIndicator size="large" color={RED}/></SafeAreaView>;
   if (!session) return <Auth/>;
+  if(mfaStatus==='checking') return <SafeAreaView style={styles.center}><ActivityIndicator size="large" color={RED}/></SafeAreaView>;
+  if(mfaStatus==='challenge'||mfaStatus==='enroll') return <SecurityGate supabase={supabase} user={session.user} mode={mfaStatus} onVerified={()=>setMfaStatus('ok')}/>;
 
   const postCount = posts.filter(p => p.author_id === profileId && !p.archived).length;
   const followingCount = owns ? follows.length : null;
