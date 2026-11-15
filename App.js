@@ -243,6 +243,7 @@ export default function App() {
   const [cameraSaveToPhotos, setCameraSaveToPhotos] = useState(true);
   const [cameraTakingPhoto, setCameraTakingPhoto] = useState(false);
   const [cameraPermissionDenied, setCameraPermissionDenied] = useState(false);
+  const [cameraAllowed, setCameraAllowed] = useState(null);
   const voiceRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const voiceStatus = useAudioRecorderState(voiceRecorder);
   const [voiceDraftUri, setVoiceDraftUri] = useState(null);
@@ -318,7 +319,7 @@ export default function App() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', async state => {
       if (state === 'active') {
-        try { const p = await CameraView.getCameraPermissionsAsync(); setCameraPermissionDenied(!p.granted); }
+        try { const p = await CameraView.getCameraPermissionsAsync(); setCameraPermissionDenied(!p.granted); setCameraAllowed(p.granted); }
         catch (_) {}
       }
     });
@@ -607,7 +608,8 @@ export default function App() {
       let permission = await CameraView.getCameraPermissionsAsync();
       if (!permission.granted && permission.canAskAgain) permission = await requestCameraPermission();
       setCameraPermissionDenied(!permission.granted);
-    } catch(e) {setCameraPermissionDenied(true);message(e);}
+      setCameraAllowed(permission.granted);
+    } catch(e) {setCameraPermissionDenied(true);setCameraAllowed(false);message(e);}
   };
   const captureCameraPhoto = async () => {
     if (cameraTakingPhoto || !cameraRef.current || !cameraTarget) return;
@@ -620,8 +622,8 @@ export default function App() {
         if (access.granted) await MediaLibrary.saveToLibraryAsync(photo.uri);
         else Alert.alert('Photo captured', 'Photo library access was denied. The picture is still ready to post in Memento.');
       }
-      if (cameraTarget === 'story') setStoryPhoto(photo.uri);
-      else setPhotoUri(photo.uri);
+      if (cameraTarget === 'story') {setStoryPhoto(photo.uri);setTab('story');}
+      else {setPhotoUri(photo.uri);setTab('create');}
       setCameraTarget(null);
     } catch (e) { message(e); }
     finally { setCameraTakingPhoto(false); }
@@ -729,7 +731,7 @@ export default function App() {
   return <SafeAreaView style={styles.safe}><StatusBar barStyle="dark-content" backgroundColor="#fff"/>
     <View style={styles.header}>
       <View style={{flexDirection:'row',alignItems:'center',gap:7}}>
-        <TouchableOpacity onPress={()=>openCamera('post')} accessibilityRole="button" accessibilityLabel="Camera to post" style={styles.headerAction}><MementoHeaderGlyph kind="camera" size={31} crossed={cameraPermissionDenied || cameraPermission?.status === 'denied'}/></TouchableOpacity>
+        <TouchableOpacity onPress={()=>openCamera('post')} accessibilityRole="button" accessibilityLabel="Camera to post" style={styles.headerAction}><MementoHeaderGlyph kind="camera" size={31} crossed={cameraAllowed === false || (cameraAllowed === null && cameraPermission?.status === 'denied')}/></TouchableOpacity>
         <TouchableOpacity onPress={()=>goTab('reposts')} accessibilityRole="button" accessibilityLabel="My reposts" style={styles.headerAction}><MementoHeaderGlyph kind="repost" size={31}/></TouchableOpacity>
       </View>
       <Text style={[styles.brand,styles.headerBrand]}>memento<Text style={{color: RED}}>.</Text></Text>
@@ -880,14 +882,14 @@ export default function App() {
         <Text style={styles.cameraTitle}>{cameraTarget === 'story' ? 'Story camera' : 'Post camera'}</Text>
         <TouchableOpacity accessibilityLabel="Toggle flash" onPress={()=>setCameraFlash(x=>x==='off'?'on':'off')} style={styles.cameraIconButton}><Ionicons name={cameraFlash==='on'?'flash':'flash-off-outline'} size={25} color="#fff"/></TouchableOpacity>
       </View>
-      {cameraPermissionDenied || !cameraPermission?.granted ? <View style={styles.cameraNoAccess}>
+      {cameraAllowed === false || (cameraAllowed === null && !cameraPermission?.granted) ? <View style={styles.cameraNoAccess}>
         <MementoHeaderGlyph kind="camera" size={90} color="#fff" crossed/>
         <Text style={styles.cameraAccessTitle}>Camera access is off</Text>
         <Text style={styles.cameraAccessText}>Allow camera permission to capture posts and stories.</Text>
-        <TouchableOpacity style={styles.cameraAccessButton} onPress={async()=>{try{const p=await requestCameraPermission();setCameraPermissionDenied(!p.granted)}catch(e){message(e)}}}><Text style={styles.cameraAccessButtonText}>Allow camera access</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.cameraAccessButton} onPress={async()=>{try{const p=await requestCameraPermission();setCameraPermissionDenied(!p.granted);setCameraAllowed(p.granted)}catch(e){message(e)}}}><Text style={styles.cameraAccessButtonText}>Allow camera access</Text></TouchableOpacity>
         <TouchableOpacity style={styles.cameraAccessButton} onPress={()=>Linking.openSettings()}><Text style={styles.cameraAccessButtonText}>Open Settings</Text></TouchableOpacity>
       </View> : <CameraView ref={cameraRef} style={styles.cameraPreview} facing={cameraFacing} flash={cameraFlash} mode="picture" />}
-      {cameraPermission?.granted && !cameraPermissionDenied && <View style={styles.cameraBottomBar}>
+      {(cameraAllowed === true || (cameraAllowed === null && cameraPermission?.granted)) && <View style={styles.cameraBottomBar}>
         <TouchableOpacity accessibilityRole="checkbox" accessibilityState={{checked:cameraSaveToPhotos}} onPress={()=>setCameraSaveToPhotos(x=>!x)} style={styles.cameraSaveRow}><Ionicons name={cameraSaveToPhotos?'checkbox':'square-outline'} color="#fff" size={21}/><Text style={styles.cameraSaveText}>Save to Photos</Text></TouchableOpacity>
         <View style={styles.cameraShutterRow}>
           <TouchableOpacity accessibilityLabel="Switch camera" onPress={()=>setCameraFacing(x=>x==='back'?'front':'back')} style={styles.cameraIconButton}><Ionicons name="camera-reverse-outline" size={28} color="#fff"/></TouchableOpacity>
