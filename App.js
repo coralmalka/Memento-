@@ -880,6 +880,15 @@ export default function App() {
         onInsights={()=>setInsightsTarget({kind:'account',ownerId:me})}
         onNotifications={enablePush} notificationError={notificationError}
         onRefresh={refresh} onBack={()=>goTab('profile')}
+        onMfaSetup={async()=>{
+          try {
+            const {data,error}=await supabase.auth.mfa.listFactors();
+            if(error)throw error;
+            if([...(data?.phone||[]),...(data?.totp||[])].some(x=>x.status==='verified'))
+              return Alert.alert('Two-factor authentication','Your account already has a verified security factor.');
+            setMfaStatus('enroll');
+          }catch(e){message(e);}
+        }}
       />}
       {tab === 'reposts' && <>
         <Text style={styles.pageTitle}>My reposts</Text>
