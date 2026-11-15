@@ -794,7 +794,7 @@ export default function App() {
         <View style={styles.settingsGroup}>
           <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={()=>{setProfileEdit(true);setTab('editProfile');}}>
             <View style={styles.settingsRowIcon}><Ionicons name="person-circle-outline" color="#232832" size={23}/></View>
-            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Edit profile</Text><Text style={styles.settingsRowInfo}>Photo, name, bio, category & links</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
+            <View style={{flex:1}}><Text style={styles.settingsRowTitle}>Edit profile</Text><Text style={styles.settingsRowInfo}>Name, bio, category & social links</Text></View><Ionicons name="chevron-forward" size={20} color="#343944"/>
           </TouchableOpacity>
           <View style={styles.settingsDivider}/>
           <TouchableOpacity accessibilityRole="button" style={styles.settingsRow} onPress={()=>Linking.openSettings()}>
