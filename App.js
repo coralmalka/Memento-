@@ -394,8 +394,9 @@ export default function App() {
         if(!active)return;
         if(data.currentLevel==='aal2')setMfaStatus('ok');
         else if(data.nextLevel==='aal2')setMfaStatus('challenge');
-        else if(session.user.user_metadata?.memento_phone_required) setMfaStatus('enroll');
-        else setMfaStatus('ok'); // Existing accounts should enroll from Security settings.
+        else if(session.user.user_metadata?.memento_phone_required ||
+          process.env.EXPO_PUBLIC_MEMENTO_REQUIRE_MFA==='true') setMfaStatus('enroll');
+        else setMfaStatus('ok'); // Existing users can enable MFA in Settings before a strict rollout.
       } catch(e){
         console.warn('Memento security check:',e?.message||e);
         if(active)setMfaStatus('challenge'); // Fail closed if the security check fails.
