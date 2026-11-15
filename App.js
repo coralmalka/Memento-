@@ -443,6 +443,49 @@ export default function App() {
     if (n.type === 'message' && n.actor_id) { setTab('inbox'); openChat(n.actor_id); }
     else if (n.actor_id) navigateProfile(n.actor_id);
   }
+  async function beginVoiceNote() {
+    if (!dmPerson || voiceSending) return;
+    try {
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Microphone is off', 'Enable microphone access to send voice notes.', [
+          {text:'Cancel',style:'cancel'}, {text:'Settings',onPress:()=>Linking.openSettings()}
+        ]);
+        return;
+      }
+      await setAudioModeAsync({allowsRecording:true,playsInSilentMode:true});
+      await voiceRecorder.prepareToRecordAsync();
+      voiceRecorder.record();
+    } catch(e) {message(e);}
+  }
+  async function finishVoiceNote() {
+    try {
+      await voiceRecorder.stop();
+      if (!voiceRecorder.uri) throw Error('Could not save this recording.');
+      setVoiceDraftUri(voiceRecorder.uri);
+      await setAudioModeAsync({allowsRecording:false,playsInSilentMode:true});
+    } catch(e) {message(e);}
+  }
+  async function sendVoiceNote() {
+    if (!dmPerson || !voiceDraftUri || voiceSending || busy) return;
+    setVoiceSending(true);
+    let path;
+    try {
+      const file = new File(voiceDraftUri);
+      if (file.size > 10 * 1024 * 1024) throw Error('Voice note must be under 10 MB.');
+      path = `${me}/${Date.now()}-${Math.random().toString(36).slice(2)}.m4a`;
+      const bytes = await file.arrayBuffer();
+      const {error:storageError} = await supabase.storage.from('dm-voice').upload(path,bytes,{contentType:'audio/mp4',upsert:false});
+      if(storageError) throw storageError;
+      const {error} = await supabase.from('direct_messages').insert({sender_id:me,recipient_id:dmPerson,body:'🎤 Voice note',audio_path:path});
+      if(error) throw error;
+      setVoiceDraftUri(null);
+      await load();
+    } catch(e) {
+      if(path) await supabase.storage.from('dm-voice').remove([path]).catch(()=>{});
+      message(e);
+    } finally {setVoiceSending(false);}
+  }
   async function sendDM() {
     if (!dmPerson || !dmDraft.trim() || busy) return;
     await run(async () => {
@@ -728,9 +771,13 @@ export default function App() {
         {dmPerson ? <>
           <Mini onPress={()=>{setDmPerson(null);setDmChatRoast(null);}}>← All messages</Mini>
           {!!dmChatRoast && <View style={styles.roastInline}><Text style={styles.roastInlineLabel}>memento said</Text><Text style={styles.roastInlineText}>{dmChatRoast}</Text></View>}
-          {directMessages.filter(m=>(m.sender_id===me&&m.recipient_id===dmPerson)||(m.sender_id===dmPerson&&m.recipient_id===me)).slice().reverse().map(m=><View key={m.id} style={[styles.dmMessage, m.sender_id===me && styles.dmMine]}><Text style={styles.dmText}>{m.body}</Text><Text style={styles.dmTime}>{new Date(m.created_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</Text></View>)}
+          {directMessages.filter(m=>(m.sender_id===me&&m.recipient_id===dmPerson)||(m.sender_id===dmPerson&&m.recipient_id===me)).slice().reverse().map(m=><View key={m.id} style={[styles.dmMessage, m.sender_id===me && styles.dmMine]}>{m.audio_path ? <><Text style={styles.dmText}>🎤 Voice note</Text>{voiceUrls[m.id] ? <AudioPreview uri={voiceUrls[m.id]}/> : <Text style={styles.tiny}>Loading audio…</Text>}</> : <Text style={styles.dmText}>{m.body}</Text>}<Text style={styles.dmTime}>{new Date(m.created_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}</Text></View>)}
           <TextInput style={styles.field} value={dmDraft} onChangeText={value=>{if(dmDraft.length<=280 && value.length>280) maybeRoast('paragraph', .9);setDmDraft(value);}} placeholder="Write a message..." maxLength={2000} multiline/>
           <Button title="Send message" onPress={sendDM} disabled={!dmDraft.trim()||busy}/>
+           <View style={styles.voiceControls}>
+             <TouchableOpacity onPress={voiceStatus.isRecording ? finishVoiceNote : beginVoiceNote} disabled={voiceSending} accessibilityRole="button" accessibilityLabel={voiceStatus.isRecording?'Stop voice recording':'Start voice recording'} style={styles.voiceAction}><Ionicons name={voiceStatus.isRecording?'stop-circle':'mic-outline'} size={23} color={voiceStatus.isRecording?RED:'#252933'}/><Text style={styles.voiceText}>{voiceStatus.isRecording ? `Stop · ${Math.round((voiceStatus.durationMillis||0)/1000)}s` : 'Record voice note'}</Text></TouchableOpacity>
+             {voiceDraftUri && !voiceStatus.isRecording && <><AudioPreview uri={voiceDraftUri}/><TouchableOpacity onPress={sendVoiceNote} disabled={voiceSending} style={styles.voiceAction}><Ionicons name="send" size={21} color={RED}/><Text style={styles.voiceText}>{voiceSending?'Sending…':'Send voice note'}</Text></TouchableOpacity><TouchableOpacity onPress={()=>setVoiceDraftUri(null)} style={styles.voiceAction}><Text style={styles.voiceText}>Discard recording</Text></TouchableOpacity></>}
+           </View>
         </> : <>
           {directMessages.length>0 && !!dmInboxRoast && <View style={styles.roastInline}><Text style={styles.roastInlineLabel}>memento said</Text><Text style={styles.roastInlineText}>{dmInboxRoast}</Text></View>}
           {directMessages.length===0 && <View style={styles.dmEmpty}><Text style={styles.dmEmptyIcon}>✉</Text><Text style={styles.dmEmptyTitle}>damn lol nobody likes u</Text><Text style={styles.dmEmptyDescription}>0 friends. 0 messages. crazy work.</Text></View>}
