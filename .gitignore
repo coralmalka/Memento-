@@ -1,0 +1,20 @@
+# Expo / Metro generated cache
+.expo/
+.expo-shared/
+web-build/
+dist/
+node_modules/
+
+# Local machine and environment configuration
+.env
+.env.*
+!.env.example
+*.local
+.DS_Store
+Thumbs.db
+
+# Builds and editor state
+*.log
+npm-debug.log*
+.idea/
+.vscode/
