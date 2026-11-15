@@ -21,6 +21,8 @@ drop policy if exists "memento_account_settings_update" on public.account_settin
 create policy "memento_account_settings_update" on public.account_settings
   for update to authenticated using (user_id=auth.uid()) with check (user_id=auth.uid());
 
+alter table public.posts add column if not exists share_count integer not null default 0;
+alter table public.stories add column if not exists share_count integer not null default 0;
 alter table public.posts add column if not exists source_story_id uuid references public.stories(id) on delete set null;
 alter table public.stories add column if not exists source_post_id uuid references public.posts(id) on delete set null;
 alter table public.stories add column if not exists source_story_id uuid references public.stories(id) on delete set null;
@@ -156,25 +158,31 @@ as $$
 begin
   if TG_TABLE_NAME='posts' then
     if new.repost_of is not null then
+      update public.posts set share_count=share_count+1 where id=new.repost_of;
       insert into public.content_shares(actor_id,source_post_id,destination)
         values(new.author_id,new.repost_of,'page');
     elsif new.source_story_id is not null then
+      update public.stories set share_count=share_count+1 where id=new.source_story_id;
       insert into public.content_shares(actor_id,source_story_id,destination)
         values(new.author_id,new.source_story_id,'page');
     end if;
   elsif TG_TABLE_NAME='stories' then
     if new.source_post_id is not null then
+      update public.posts set share_count=share_count+1 where id=new.source_post_id;
       insert into public.content_shares(actor_id,source_post_id,destination)
         values(new.author_id,new.source_post_id,'story');
     elsif new.source_story_id is not null then
+      update public.stories set share_count=share_count+1 where id=new.source_story_id;
       insert into public.content_shares(actor_id,source_story_id,destination)
         values(new.author_id,new.source_story_id,'story');
     end if;
   elsif TG_TABLE_NAME='direct_messages' then
     if new.shared_post_id is not null then
+      update public.posts set share_count=share_count+1 where id=new.shared_post_id;
       insert into public.content_shares(actor_id,source_post_id,destination,recipient_id)
         values(new.sender_id,new.shared_post_id,'dm',new.recipient_id);
     elsif new.shared_story_id is not null then
+      update public.stories set share_count=share_count+1 where id=new.shared_story_id;
       insert into public.content_shares(actor_id,source_story_id,destination,recipient_id)
         values(new.sender_id,new.shared_story_id,'dm',new.recipient_id);
     end if;
