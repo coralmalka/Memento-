@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Memento",
+    "slug": "memento-social",
+    "scheme": "memento",
+    "orientation": "portrait",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Choose photos to share as posts or memories."
+      }
+    },
+    "android": {
+      "permissions": []
+    },
+    "plugins": [
+      "expo-image-picker",
+      "expo-audio",
+      "expo-video"
+    ]
+  }
+}
