@@ -6,7 +6,6 @@ alter table public.profiles add column if not exists category text;
 alter table public.profiles add column if not exists pronouns text;
 alter table public.profiles add column if not exists website text;
 alter table public.profiles add column if not exists instagram text;
-alter table public.profiles add column if not exists tiktok text;
 alter table public.profiles add column if not exists avatar_path text;
 
 -- Profile pictures (not AI avatars) are public by design so any member can
