@@ -645,14 +645,26 @@ export default function App() {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 1, skipProcessing: false });
       if (!photo?.uri) throw Error('No photo was captured. Try again.');
-      if (cameraSaveToPhotos) {
-        const access = await MediaLibrary.requestPermissionsAsync(true);
-        if (access.granted) await MediaLibrary.saveToLibraryAsync(photo.uri);
-        else Alert.alert('Photo captured', 'Photo library access was denied. The picture is still ready to post in Memento.');
-      }
+
+      // The camera capture must succeed independently of optional Photos saving.
+      // Switch to the appropriate composer even if Photos access is denied.
       if (cameraTarget === 'story') {setStoryPhoto(photo.uri);setTab('story');}
       else {setPhotoUri(photo.uri);setTab('create');}
       setCameraTarget(null);
+
+      if (cameraSaveToPhotos) {
+        try {
+          const access = await MediaLibrary.requestPermissionsAsync(true);
+          if (access.granted) {
+            // Expo SDK 58: saveToLibraryAsync at the root import throws at runtime.
+            await MediaLibrary.Asset.create(photo.uri);
+          } else {
+            Alert.alert('Photo captured', 'Photo library access was denied. Your picture is still ready to post in Memento.');
+          }
+        } catch (saveError) {
+          Alert.alert('Photo captured', 'Your picture is ready to post in Memento, but it could not be saved to Photos. Check Memento\'s Photos permission in iPhone Settings.\n\n' + (saveError?.message || String(saveError)));
+        }
+      }
     } catch (e) { message(e); }
     finally { setCameraTakingPhoto(false); }
   };
