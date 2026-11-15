@@ -16,6 +16,7 @@ import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorde
 import { File } from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { chooseOriginalAudio, uploadOriginalAudio, signedAudio, trackMetadata, providerFor, searchAppleCatalog } from './lib/music';
+import ProfileEditor from './components/ProfileEditor';
 
 const RED = '#E4384F';
 // Original scalable Memento header glyphs based on the provided icon references.
@@ -276,7 +277,6 @@ export default function App() {
   const inactivitySeenRef = useRef(null);
   const scheduledKeyRef = useRef(null);
 
-  const [newUsername, setNewUsername] = useState(''); const [newBio, setNewBio] = useState('');
   const me = session?.user?.id; const mine = profiles.find(p => p.id === me);
   const profileId = seenProfile || me; const profile = profiles.find(p => p.id === profileId);
 
@@ -378,7 +378,11 @@ export default function App() {
         supabase.from('direct_messages').select('*').or(`sender_id.eq.${me},recipient_id.eq.${me}`).order('created_at', { ascending: false }).limit(300),
       ]);
       const err = results.find(r => r.error)?.error; if (err) throw err;
-      setProfiles(results[0].data); setFollows(results[1].data);
+      setProfiles((results[0].data || []).map(person => ({
+        ...person,
+        avatar_url: person.avatar_path ? supabase.storage.from('profile-avatars').getPublicUrl(person.avatar_path).data.publicUrl : null,
+      })));
+      setFollows(results[1].data);
       setPosts(await hydrateImages(results[2].data));
       setStories(await hydrateImages(results[3].data));
       setArchive(await hydrateImages(results[4].data));
@@ -607,12 +611,6 @@ export default function App() {
   }); }
   async function deleteCollection(id) { Alert.alert('Delete collection?', 'Archived Stories will remain saved.', [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: () => run(async () => { const { error } = await supabase.from('collections').delete().eq('id', id); if (error) throw error; setEditor(null); }) }]); }
   async function deleteStory(id) { Alert.alert('Delete this Story?', 'This also removes it from collections.', [{ text: 'Cancel' }, { text: 'Delete', style: 'destructive', onPress: () => run(async () => { const { error } = await supabase.from('stories').delete().eq('id', id); if (error) throw error; setViewer(null); }) }]); }
-  async function editProfile() { await run(async () => {
-    const handle = newUsername.trim().toLowerCase();
-    if (!/^[a-z0-9_]{3,24}$/.test(handle)) throw Error('Username must be 3–24 lowercase letters, numbers or underscores.');
-    const { error } = await supabase.from('profiles').update({ username: handle, bio: newBio.trim() }).eq('id', me);
-    if (error) throw error; setProfileEdit(false); setTab('profile');
-  }); }
   async function chooseCover() { try { const uri = await pickImage(); if (uri) await run(async () => setEditorCoverPath(await uploadImage(me, uri))); } catch (e) { message(e); } }
   const openCamera = async target => {
     setCameraTarget(target);
@@ -764,7 +762,7 @@ export default function App() {
         </ScrollView>
         {feed.length === 0 && <View style={styles.emptyState}><Text style={styles.emptyIcon}>▧</Text><Text style={styles.emptyTitle}>bro is a government mystery</Text><Text style={styles.emptyDescription}>Follow people in Explore or share your first photo to start making memories.</Text><TouchableOpacity style={styles.primaryPill} onPress={() => goTab('explore')}><Text style={styles.primaryPillText}>Find people</Text></TouchableOpacity></View>}
         {feed.map(p => <View key={p.id} style={styles.post}>
-          <TouchableOpacity onPress={() => navigateProfile(p.author_id)} style={styles.postHeading}><View style={styles.smallAvatar}><Text style={styles.smallAvatarText}>{username(profiles.find(x => x.id === p.author_id)).charAt(0).toUpperCase()}</Text></View><Text style={styles.postHandle}>{username(profiles.find(x => x.id === p.author_id))}</Text>{p.author_id===me && <TouchableOpacity onPress={()=>postOptions(p)}><Text style={styles.postMore}>···</Text></TouchableOpacity>}</TouchableOpacity>
+          <TouchableOpacity onPress={() => navigateProfile(p.author_id)} style={styles.postHeading}><View style={[styles.smallAvatar,{overflow:'hidden'}]}>{profiles.find(x=>x.id===p.author_id)?.avatar_url ? <Image source={{uri:profiles.find(x=>x.id===p.author_id).avatar_url}} style={{width:'100%',height:'100%'}}/> : <Text style={styles.smallAvatarText}>{username(profiles.find(x => x.id === p.author_id)).charAt(0).toUpperCase()}</Text>}</View><Text style={styles.postHandle}>{username(profiles.find(x => x.id === p.author_id))}</Text>{p.author_id===me && <TouchableOpacity onPress={()=>postOptions(p)}><Text style={styles.postMore}>···</Text></TouchableOpacity>}</TouchableOpacity>
           <OriginalFrame uri={p.image_url}/>
           <View style={styles.postActions}><TouchableOpacity onPress={() => likePost(p.id)} disabled={busy}><Text style={[styles.actionIcon,likes.some(l=>l.post_id===p.id&&l.user_id===me)&&{color:RED}]}>{likes.some(l=>l.post_id===p.id&&l.user_id===me)?'♥':'♡'}</Text></TouchableOpacity><TouchableOpacity onPress={() => {setCommenting(commenting===p.id?null:p.id);setCommentDraft('');}}><Text style={styles.actionIcon}>♧</Text></TouchableOpacity><TouchableOpacity onPress={() => setSharePost(p)}><Text style={styles.actionIcon}>↗</Text></TouchableOpacity><TouchableOpacity onPress={() => setSharePost(p)}><Text style={styles.actionIcon}>⇄</Text></TouchableOpacity></View>
           <Text style={styles.engagement}>{likes.filter(l => l.post_id === p.id).length} likes · {comments.filter(c => c.post_id === p.id).length} comments{p.repost_of ? ' · repost' : ''}</Text>
@@ -869,9 +867,34 @@ export default function App() {
         <Button title="Save to private archive" secondary disabled={busy || !storyPhoto} onPress={()=>saveStory(false)}/>
       </>}
       {tab==='profile' && <>
-        <View style={styles.profileTop}><View style={styles.profileAvatar}><Text style={styles.profileInitial}>{initial}</Text></View><View style={styles.profileStats}><View style={styles.profileStat}><Text style={styles.profileStatNumber}>{postCount}</Text><Text style={styles.profileStatLabel}>posts</Text></View><View style={styles.profileStat}><Text style={styles.profileStatNumber}>{myCollections.length}</Text><Text style={styles.profileStatLabel}>collections</Text></View>{followingCount!==null && <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{followingCount}</Text><Text style={styles.profileStatLabel}>following</Text></View>}</View></View>
-        <View style={styles.profileIdentity}><Text style={styles.profileUsername}>@{username(profile)}</Text>{!!profile?.bio && <Text style={styles.profileBio}>{profile.bio}</Text>}</View>
-        <View style={styles.profileButtons}>{owns ? <><TouchableOpacity style={styles.profileButton} onPress={()=>{setNewUsername(mine?.username||'');setNewBio(mine?.bio||'');setProfileEdit(true);setTab('editProfile');}}><Text style={styles.profileButtonText}>Edit profile</Text></TouchableOpacity><TouchableOpacity style={styles.profileButton} onPress={()=>supabase.auth.signOut()}><Text style={styles.profileButtonText}>Sign out</Text></TouchableOpacity></> : <TouchableOpacity style={styles.followButton} onPress={()=>follow(profileId)}><Text style={styles.followText}>{follows.some(f=>f.followed_id===profileId)?'Following ✓':'Follow'}</Text></TouchableOpacity>}</View>
+        <View style={styles.profileHero}>
+          <View style={styles.profileHeroTop}><Text style={styles.profileHeroKicker}>MEMENTO / PROFILE</Text><Ionicons name="sparkles-outline" size={19} color="#F1B6C2"/></View>
+          <View style={styles.profileTop}>
+            <View style={styles.profileAvatar}>{profile?.avatar_url ? <Image source={{uri:profile.avatar_url}} style={styles.profileAvatarPicture}/> : <Text style={styles.profileInitial}>{initial}</Text>}</View>
+            <View style={styles.profileStats}>
+              <View style={styles.profileStat}><Text style={[styles.profileStatNumber,styles.profileHeroStat]}>{postCount}</Text><Text style={[styles.profileStatLabel,styles.profileHeroStatLabel]}>POSTS</Text></View>
+              <View style={styles.profileStat}><Text style={[styles.profileStatNumber,styles.profileHeroStat]}>{myCollections.length}</Text><Text style={[styles.profileStatLabel,styles.profileHeroStatLabel]}>MEMORIES</Text></View>
+              {followingCount!==null && <View style={styles.profileStat}><Text style={[styles.profileStatNumber,styles.profileHeroStat]}>{followingCount}</Text><Text style={[styles.profileStatLabel,styles.profileHeroStatLabel]}>FOLLOWING</Text></View>}
+            </View>
+          </View>
+          <View style={styles.profileIdentity}>
+            <Text style={styles.profileDisplayName}>{profile?.display_name || username(profile)}</Text>
+            <Text style={styles.profileHeroHandle}>@{username(profile)}</Text>
+            {!!(profile?.category || profile?.pronouns) && <Text style={styles.profileHeroDetails}>{[profile?.category,profile?.pronouns].filter(Boolean).join(' · ')}</Text>}
+            {!!profile?.bio && <Text style={styles.profileHeroBio}>{profile.bio}</Text>}
+            <View style={styles.profileLinks}>
+              {!!profile?.website && <TouchableOpacity style={styles.profileLink} onPress={()=>Linking.openURL(profile.website).catch(message)}><Ionicons name="globe-outline" size={16} color="#fff"/><Text style={styles.profileLinkText}>Website</Text></TouchableOpacity>}
+              {!!profile?.instagram && <TouchableOpacity style={styles.profileLink} onPress={()=>Linking.openURL('https://www.instagram.com/'+encodeURIComponent(profile.instagram)).catch(message)}><Ionicons name="logo-instagram" size={16} color="#fff"/><Text style={styles.profileLinkText}>Instagram</Text></TouchableOpacity>}
+              {!!profile?.tiktok && <TouchableOpacity style={styles.profileLink} onPress={()=>Linking.openURL('https://www.tiktok.com/@'+encodeURIComponent(profile.tiktok)).catch(message)}><Ionicons name="musical-notes-outline" size={16} color="#fff"/><Text style={styles.profileLinkText}>TikTok</Text></TouchableOpacity>}
+            </View>
+          </View>
+        </View>
+        <View style={styles.profileButtons}>
+          {owns ? <>
+            <TouchableOpacity style={styles.profileButton} onPress={()=>{setProfileEdit(true);setTab('editProfile');}}><Ionicons name="create-outline" size={18} color="#20242B"/><Text style={styles.profileButtonText}>Edit profile</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.profileButton} onPress={()=>goTab('settings')}><Ionicons name="settings-outline" size={18} color="#20242B"/><Text style={styles.profileButtonText}>Settings</Text></TouchableOpacity>
+          </> : <TouchableOpacity style={styles.followButton} onPress={()=>follow(profileId)}><Text style={styles.followText}>{follows.some(f=>f.followed_id===profileId)?'Following ✓':'Follow'}</Text></TouchableOpacity>}
+        </View>
         <View style={styles.divider}/>
         <View style={styles.sectionRow}><Text style={styles.sectionTitle}>Memory collections</Text>{owns && <TouchableOpacity onPress={()=>startCollection()}><Text style={styles.sectionLink}>+ New</Text></TouchableOpacity>}</View>
         {myCollections.length===0 && <TouchableOpacity onPress={()=>owns && startCollection()} style={styles.collectionEmpty}><Text style={styles.collectionEmptyIcon}>▢</Text><Text style={styles.collectionEmptyTitle}>No collections yet</Text><Text style={styles.collectionEmptyDescription}>{owns?'Save stories and organize them into collections.':'Collections will appear here.'}</Text></TouchableOpacity>}
@@ -890,7 +913,9 @@ export default function App() {
         <Button title={busy?'Saving…':'Save collection'} disabled={busy} onPress={saveCollection}/>{editor!=='new'&&<Button secondary title="Delete collection" onPress={()=>deleteCollection(editor)}/>}<Button secondary title="Cancel" onPress={()=>{setEditor(null);setTab('profile');}}/>
       </>}
       {tab==='view' && viewer && <><Text style={styles.pageTitle}>{currentCollection?.title||'Story'}</Text><OriginalFrame uri={viewStory?.image_url}/>{!!viewStory?.location_label && <Text style={styles.locationText}>⌖ {viewStory.location_label}</Text>}<MusicDisplay item={viewStory}/><HashtagText style={styles.caption} onHashtag={searchTag}>{viewStory?.caption}</HashtagText>{currentCollection&&<><Text style={styles.note}>{(viewer.index||0)+1} / {selectedStories.length}</Text><View style={styles.row}><Button secondary title="← Previous" onPress={()=>setViewer({...viewer,index:Math.max(0,(viewer.index||0)-1)})}/><Button secondary title="Next →" onPress={()=>setViewer({...viewer,index:Math.min(selectedStories.length-1,(viewer.index||0)+1)})}/></View><Button secondary title="Share collection" onPress={()=>Share.share({message:`See my ${currentCollection.title} collection on Memento!`,title:currentCollection.title})}/></>}{viewer.own&&<Button secondary title="Delete story" onPress={()=>deleteStory(viewStory.id)}/>}<Button title="Close" onPress={()=>{setViewer(null);setTab('profile');}}/></>}
-      {tab==='editProfile' && profileEdit && <><Text style={styles.pageTitle}>Edit profile</Text><TextInput value={newUsername} onChangeText={setNewUsername} style={styles.field} autoCapitalize="none" placeholder="Username"/><TextInput value={newBio} onChangeText={setNewBio} multiline maxLength={300} style={styles.field} placeholder="Bio"/><StickerPicker onPick={sticker=>setNewBio(value=>(value + (value && !value.endsWith(' ') ? ' ' : '') + sticker).slice(0,300))}/><Button title="Save profile" onPress={editProfile}/><Button secondary title="Cancel" onPress={()=>setTab('profile')}/></>}
+      {tab==='editProfile' && profileEdit && <ProfileEditor key={me} profile={mine} user={session.user} supabase={supabase}
+        onCancel={()=>{setProfileEdit(false);setTab('profile');setSeenProfile(me);}}
+        onSaved={updated=>{setProfiles(old=>old.map(p=>p.id===me?{...p,...updated}:p));setProfileEdit(false);setSeenProfile(me);setTab('profile');load();}}/>}
     </ScrollView>
     {!!cameraTarget && <View style={styles.cameraOverlay}>
       <View style={styles.cameraTopBar}>
@@ -962,7 +987,7 @@ const styles = StyleSheet.create({
   post:{paddingBottom:22,borderTopWidth:1,borderColor:'#F2F2F5',marginBottom:9},postHeading:{height:64,paddingHorizontal:16,flexDirection:'row',alignItems:'center',gap:10},smallAvatar:{width:38,height:38,borderRadius:19,backgroundColor:'#EDEEF3',alignItems:'center',justifyContent:'center'},smallAvatarText:{fontWeight:'800',color:'#4B5362',fontSize:16},postHandle:{fontWeight:'800',fontSize:13.5,color:'#252933'},postMore:{marginLeft:'auto',fontSize:24,fontWeight:'700',color:'#8B90A0'},postImage:{width:'100%',backgroundColor:'transparent'},postActions:{flexDirection:'row',gap:18,paddingHorizontal:17,paddingTop:10},actionIcon:{fontSize:28,color:'#282C36'},postCaptionRow:{flexDirection:'row',flexWrap:'wrap',alignItems:'baseline',marginHorizontal:17,marginTop:7},caption:{fontSize:13.5,lineHeight:21,color:'#343942'},postDate:{fontSize:10.5,color:'#A0A5AF',marginHorizontal:17,marginTop:6},
   segmentRow:{flexDirection:'row',backgroundColor:'#F4F5F7',marginHorizontal:20,marginTop:11,marginBottom:15,borderRadius:12,padding:4},segment:{flex:1,paddingVertical:11,alignItems:'center',borderRadius:9},segmentActive:{backgroundColor:'#fff'},segmentText:{fontWeight:'700',fontSize:13,color:'#858B98'},segmentTextActive:{color:'#17191F'},personRow:{flexDirection:'row',alignItems:'center',gap:12,paddingHorizontal:20,paddingVertical:13,borderBottomWidth:1,borderColor:'#F3F3F5'},personName:{fontSize:14,fontWeight:'800',color:'#262A31'},personBio:{fontSize:12,color:'#9096A3',marginTop:3},disclosure:{fontSize:28,color:'#A9AFBA'},
   uploadCard:{marginHorizontal:0,marginVertical:8,borderRadius:0,overflow:'hidden',backgroundColor:'#F2F3F6'},uploadPreview:{height:300,width:'100%'},storyUploadPreview:{height:370,width:'100%'},uploadOverlay:{position:'absolute',top:0,bottom:0,left:0,right:0,alignItems:'center',justifyContent:'center'},uploadIcon:{fontSize:44,color:RED},uploadHeading:{fontWeight:'800',fontSize:17,color:'#31353E',marginTop:6},uploadHelp:{fontSize:12,color:'#9298A3',marginTop:8},
-  profileTop:{flexDirection:'row',alignItems:'center',paddingHorizontal:21,paddingTop:28,gap:24},profileAvatar:{width:86,height:86,borderRadius:43,backgroundColor:'#F2E8EB',alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'#F5C1CB'},profileInitial:{fontSize:39,fontWeight:'800',color:RED},profileStats:{flex:1,flexDirection:'row',justifyContent:'space-around'},profileStat:{alignItems:'center',minWidth:60},profileStatNumber:{fontSize:19,fontWeight:'850',color:'#1E2027'},profileStatLabel:{fontSize:11,color:'#8B909C',marginTop:5},profileIdentity:{marginHorizontal:22,marginTop:19},profileUsername:{fontWeight:'850',fontSize:19,letterSpacing:-.4,color:'#17191F'},profileBio:{fontSize:13.5,lineHeight:20,color:'#565D69',marginTop:7},profileButtons:{flexDirection:'row',gap:9,paddingHorizontal:20,marginTop:20,marginBottom:4},profileButton:{flex:1,backgroundColor:'#F0F1F4',borderRadius:10,alignItems:'center',paddingVertical:12},profileButtonText:{fontSize:13,fontWeight:'800',color:'#292E38'},followButton:{backgroundColor:RED,flex:1,borderRadius:10,alignItems:'center',paddingVertical:12},followText:{color:'#fff',fontWeight:'800',fontSize:13},divider:{height:1,backgroundColor:'#F0F1F4',marginTop:23},
+  profileTop:{flexDirection:'row',alignItems:'center',paddingHorizontal:21,paddingTop:18,gap:17},profileAvatar:{width:86,height:86,borderRadius:43,backgroundColor:'#444C5A',alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'#F3F4F7',overflow:'hidden'},profileInitial:{fontSize:39,fontWeight:'900',color:'#fff'},profileStats:{flex:1,flexDirection:'row',justifyContent:'space-around'},profileStat:{alignItems:'center',minWidth:60},profileStatNumber:{fontSize:19,fontWeight:'850',color:'#1E2027'},profileStatLabel:{fontSize:11,color:'#8B909C',marginTop:5},profileIdentity:{marginHorizontal:22,marginTop:19},profileUsername:{fontWeight:'850',fontSize:19,letterSpacing:-.4,color:'#17191F'},profileBio:{fontSize:13.5,lineHeight:20,color:'#565D69',marginTop:7},profileButtons:{flexDirection:'row',gap:10,paddingHorizontal:20,marginTop:17,marginBottom:9},profileButton:{flex:1,backgroundColor:'#F0F1F4',borderRadius:13,alignItems:'center',justifyContent:'center',flexDirection:'row',gap:7,paddingVertical:15,borderWidth:1,borderColor:'#D4D8E0'},profileButtonText:{fontSize:13,fontWeight:'800',color:'#292E38'},followButton:{backgroundColor:RED,flex:1,borderRadius:10,alignItems:'center',paddingVertical:12},followText:{color:'#fff',fontWeight:'800',fontSize:13},divider:{height:1,backgroundColor:'#F0F1F4',marginTop:23},
   collectionEmpty:{marginHorizontal:20,backgroundColor:'#FAFAFB',borderRadius:15,paddingVertical:27,paddingHorizontal:18,alignItems:'center',borderWidth:1,borderColor:'#F2F2F5'},collectionEmptyIcon:{fontSize:30,color:'#A9AFBB'},collectionEmptyTitle:{fontSize:14,fontWeight:'800',color:'#373B44',marginTop:8},collectionEmptyDescription:{fontSize:12,color:'#9298A3',textAlign:'center',marginTop:5},collectionsRow:{paddingHorizontal:20,gap:13},collectionItem:{width:144},album:{height:166,width:144,borderRadius:13},albumTitle:{fontWeight:'800',fontSize:13.5,color:'#262B34',marginTop:8},albumMeta:{fontSize:10.5,color:'#989EAA',marginTop:4},collectionControls:{flexDirection:'row',justifyContent:'space-between',marginTop:8},collectionEdit:{fontSize:12,color:RED,fontWeight:'700'},
   emptyInline:{fontSize:13,color:'#A0A5B0',marginHorizontal:21,marginBottom:18,marginTop:4},grid:{flexDirection:'row',flexWrap:'wrap',paddingHorizontal:1,gap:2},tile:{width:'33%',aspectRatio:1},tileImage:{width:'100%',height:'100%'},
   tiny:{fontSize:11,color:'#8C929E',marginTop:5,textAlign:'center'},action:{fontSize:13,color:RED,marginHorizontal:20,marginVertical:10,fontWeight:'800'},storyPicker:{height:420,margin:20,borderRadius:14},
@@ -1007,6 +1032,19 @@ const styles = StyleSheet.create({
   stickerGrid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',paddingVertical:10},
   stickerChoice:{width:'16%',alignItems:'center',paddingVertical:9},
   stickerEmoji:{fontSize:26},
+  profileHero:{backgroundColor:'#171A22',marginHorizontal:14,marginTop:18,borderRadius:22,paddingTop:17,paddingBottom:22,overflow:'hidden'},
+  profileHeroTop:{paddingHorizontal:22,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
+  profileHeroKicker:{color:'#E8E9EE',fontSize:10,letterSpacing:1.5,fontWeight:'900'},
+  profileAvatarPicture:{width:'100%',height:'100%'},
+  profileHeroStat:{color:'#fff',fontSize:20},
+  profileHeroStatLabel:{color:'#D7DBE3',fontWeight:'800',fontSize:10,letterSpacing:.5,marginTop:5},
+  profileDisplayName:{fontSize:26,fontWeight:'900',color:'#fff',letterSpacing:-.8},
+  profileHeroHandle:{fontSize:14,color:'#F1B6C2',fontWeight:'800',marginTop:3},
+  profileHeroDetails:{fontSize:12,color:'#E7E9ED',fontWeight:'700',marginTop:11},
+  profileHeroBio:{fontSize:14,color:'#fff',fontWeight:'500',lineHeight:21,marginTop:13},
+  profileLinks:{flexDirection:'row',flexWrap:'wrap',gap:8,marginTop:15},
+  profileLink:{flexDirection:'row',alignItems:'center',gap:5,backgroundColor:'#343B48',paddingHorizontal:12,paddingVertical:9,borderRadius:18},
+  profileLinkText:{color:'#fff',fontWeight:'800',fontSize:12},
   cameraOverlay:{position:'absolute',top:0,bottom:0,left:0,right:0,zIndex:100,backgroundColor:'#08090D'},
   cameraTopBar:{height:58,flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:12},
   cameraTitle:{color:'#fff',fontWeight:'800',fontSize:16},
