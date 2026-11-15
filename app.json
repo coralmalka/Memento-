@@ -7,7 +7,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Choose photos to share as posts or memories."
+        "NSPhotoLibraryUsageDescription": "Choose photos and save camera captures from Memento.",
+        "NSCameraUsageDescription": "Take photos for Memento posts and stories.",
+        "NSPhotoLibraryAddUsageDescription": "Save photos captured in Memento to your photo library."
       }
     },
     "android": {
@@ -16,7 +18,9 @@
     "plugins": [
       "expo-image-picker",
       "expo-audio",
-      "expo-video"
+      "expo-video",
+      "expo-camera",
+      "expo-media-library"
     ]
   }
 }
