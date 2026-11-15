@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
-import { ActivityIndicator, Alert, Image, RefreshControl, SafeAreaView, ScrollView, Share, Linking, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Image, RefreshControl, SafeAreaView, ScrollView, Share, Linking, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { configured, supabase } from './lib/supabase';
 import { pickImage, uploadImage, signedImage } from './lib/media';
 import { HashtagText } from './lib/hashtags';
@@ -11,7 +11,8 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, AudioModule, RecordingPresets, setAudioModeAsync } from 'expo-audio';
+import { File } from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { chooseOriginalAudio, uploadOriginalAudio, signedAudio, trackMetadata, providerFor, searchAppleCatalog } from './lib/music';
 
@@ -214,6 +215,12 @@ export default function App() {
   const [cameraFlash, setCameraFlash] = useState('off');
   const [cameraSaveToPhotos, setCameraSaveToPhotos] = useState(true);
   const [cameraTakingPhoto, setCameraTakingPhoto] = useState(false);
+  const [cameraPermissionDenied, setCameraPermissionDenied] = useState(false);
+  const voiceRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const voiceStatus = useAudioRecorderState(voiceRecorder);
+  const [voiceDraftUri, setVoiceDraftUri] = useState(null);
+  const [voiceSending, setVoiceSending] = useState(false);
+  const [voiceUrls, setVoiceUrls] = useState({});
   const [storyCaption, setStoryCaption] = useState(''); const [editor, setEditor] = useState(null);
   const [editorTitle, setEditorTitle] = useState(''); const [editorVisibility, setEditorVisibility] = useState('private');
   const [editorCoverPath, setEditorCoverPath] = useState(null); const [editorStoryIds, setEditorStoryIds] = useState([]);
@@ -268,6 +275,7 @@ export default function App() {
     maybeRoast(name, name === 'inbox' ? 0.25 : 0.42);
   };
   const openChat = id => {
+    setVoiceDraftUri(null);
     setDmPerson(id);
     setDmChatRoast(Math.random() < 0.78 ? pickRoast('chat') : null);
   };
@@ -280,6 +288,24 @@ export default function App() {
     return !!latest && (Date.now() - latest) >= 7 * DAY_MS;
   };
   useEffect(() => () => { if (roastTimeoutRef.current) clearTimeout(roastTimeoutRef.current); }, []);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async state => {
+      if (state === 'active') {
+        try { const p = await CameraView.getCameraPermissionsAsync(); setCameraPermissionDenied(!p.granted); }
+        catch (_) {}
+      }
+    });
+    return () => sub.remove();
+  }, []);
+  useEffect(() => {
+    if (!directMessages.length || !me) return;
+    let cancelled = false;
+    Promise.all(directMessages.filter(m => m.audio_path).map(async m => {
+      const {data,error} = await supabase.storage.from('dm-voice').createSignedUrl(m.audio_path,3600);
+      return [m.id,error ? null : data?.signedUrl];
+    })).then(pairs => {if (!cancelled) setVoiceUrls(Object.fromEntries(pairs))}).catch(e=>console.warn('Voice note links:', e?.message));
+    return () => {cancelled = true};
+  }, [directMessages, me]);
 
   useEffect(() => {
     if (!supabase) { setBooting(false); return; }
@@ -506,15 +532,12 @@ export default function App() {
   }); }
   async function chooseCover() { try { const uri = await pickImage(); if (uri) await run(async () => setEditorCoverPath(await uploadImage(me, uri))); } catch (e) { message(e); } }
   const openCamera = async target => {
+    setCameraTarget(target);
     try {
-      let permission = cameraPermission;
-      if (!permission?.granted) permission = await requestCameraPermission();
-      if (!permission?.granted) {
-        Alert.alert('Camera access needed', 'Enable Camera access for Memento in your iPhone Settings.');
-        return;
-      }
-      setCameraTarget(target);
-    } catch (e) { message(e); }
+      let permission = await CameraView.getCameraPermissionsAsync();
+      if (!permission.granted && permission.canAskAgain) permission = await requestCameraPermission();
+      setCameraPermissionDenied(!permission.granted);
+    } catch(e) {setCameraPermissionDenied(true);message(e);}
   };
   const captureCameraPhoto = async () => {
     if (cameraTakingPhoto || !cameraRef.current || !cameraTarget) return;
@@ -637,11 +660,11 @@ export default function App() {
     <View style={styles.header}>
       <Text style={styles.brand}>memento<Text style={{color: RED}}>.</Text></Text>
       <View style={{flexDirection:'row',alignItems:'center',gap:12}}>
-        <TouchableOpacity onPress={() => goTab('create')} accessibilityLabel="Create post" style={styles.headerAction}><Ionicons name="add-circle-outline" size={27} color="#242830" /></TouchableOpacity>
-        <TouchableOpacity onPress={openActivity} accessibilityLabel="Activity notifications" style={styles.headerAction}><Text style={styles.headerRight}>♡{activity.some(n=>!n.read_at) ? '•' : ''}</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => goTab('inbox')} accessibilityLabel="Open direct messages" style={styles.headerAction}><Text style={styles.headerRight}>✉</Text></TouchableOpacity>
-        <TouchableOpacity onPress={() => goTab('settings')} accessibilityLabel="Settings" style={styles.headerAction}><Text style={styles.headerRight}>⚙</Text></TouchableOpacity>
-        <TouchableOpacity onPress={refresh} accessibilityLabel="Refresh feed" style={styles.headerAction}><Text style={styles.headerRight}>↻</Text></TouchableOpacity>
+        <TouchableOpacity onPress={()=>openCamera('post')} accessibilityRole="button" accessibilityLabel="Camera to post" style={styles.headerAction}><Ionicons name="camera-outline" size={27} color="#242830"/>{cameraPermissionDenied && <View style={styles.cameraDeniedSlash}/>}</TouchableOpacity>
+        <TouchableOpacity onPress={()=>goTab('reposts')} accessibilityRole="button" accessibilityLabel="My reposts" style={styles.headerAction}><Ionicons name="repeat-outline" size={27} color="#242830"/></TouchableOpacity>
+        <TouchableOpacity onPress={()=>goTab('inbox')} accessibilityRole="button" accessibilityLabel="Direct messages" style={styles.headerAction}><Ionicons name="paper-plane-outline" size={24} color="#242830"/></TouchableOpacity>
+        <TouchableOpacity onPress={()=>goTab('settings')} accessibilityRole="button" accessibilityLabel="Settings" style={styles.headerAction}><Ionicons name="settings-outline" size={24} color="#242830"/></TouchableOpacity>
+        <TouchableOpacity onPress={openActivity} accessibilityRole="button" accessibilityLabel="Notifications" style={styles.headerAction}><Ionicons name="notifications-outline" size={27} color="#242830"/>{activity.some(n=>!n.read_at) && <View style={styles.notificationDot}/>}</TouchableOpacity>
       </View>
     </View>
     <ScrollView key={tab + profileId} style={styles.screen} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={RED}/>} contentContainerStyle={{ paddingBottom: 108 }}>
@@ -685,6 +708,15 @@ export default function App() {
         <Text style={styles.section}>Connected platforms</Text>
         <Text style={styles.note}>Instagram and X OAuth connections require registered developer apps, redirect URIs and a secure token server. No external account is connected by this screen yet.</Text>
         <Text style={styles.section}>Music</Text><Text style={styles.note}>Attach Spotify, SoundCloud or Apple Music links to posts and stories. Playback happens in the music service; Memento does not rebroadcast copyrighted tracks.</Text>
+      </>}
+      {tab === 'reposts' && <>
+        <Text style={styles.pageTitle}>My reposts</Text>
+        <Text style={styles.pageSubtitle}>Posts you've reposted from other people.</Text>
+        {!posts.some(p=>p.author_id===me && p.repost_of && !p.archived) && <Text style={styles.note}>No reposts yet. Tap repost on another member's post to see it here.</Text>}
+        {posts.filter(p=>p.author_id===me && p.repost_of && !p.archived).map(p=><View key={p.id} style={styles.post}>
+          <View style={styles.postHeading}><Ionicons name="repeat-outline" size={23} color="#252933"/><Text style={styles.postHandle}>Reposted by you</Text><TouchableOpacity onPress={()=>postOptions(p)}><Ionicons name="ellipsis-horizontal" size={22} color="#444"/></TouchableOpacity></View>
+          <OriginalFrame uri={p.image_url}/><HashtagText style={styles.caption} onHashtag={searchTag}>{p.caption}</HashtagText><MusicDisplay item={p}/>
+        </View>)}
       </>}
       {tab === 'activity' && <>
         <Text style={styles.pageTitle}>Activity</Text>
@@ -771,15 +803,21 @@ export default function App() {
         <Text style={styles.cameraTitle}>{cameraTarget === 'story' ? 'Story camera' : 'Post camera'}</Text>
         <TouchableOpacity accessibilityLabel="Toggle flash" onPress={()=>setCameraFlash(x=>x==='off'?'on':'off')} style={styles.cameraIconButton}><Ionicons name={cameraFlash==='on'?'flash':'flash-off-outline'} size={25} color="#fff"/></TouchableOpacity>
       </View>
-      <CameraView ref={cameraRef} style={styles.cameraPreview} facing={cameraFacing} flash={cameraFlash} mode="picture" />
-      <View style={styles.cameraBottomBar}>
+      {cameraPermissionDenied || !cameraPermission?.granted ? <View style={styles.cameraNoAccess}>
+        <Ionicons name="camera-outline" size={70} color="#fff"/><Ionicons name="ban-outline" size={45} color="#fff" style={styles.cameraBan}/>
+        <Text style={styles.cameraAccessTitle}>Camera access is off</Text>
+        <Text style={styles.cameraAccessText}>Allow camera permission to capture posts and stories.</Text>
+        <TouchableOpacity style={styles.cameraAccessButton} onPress={async()=>{try{const p=await requestCameraPermission();setCameraPermissionDenied(!p.granted)}catch(e){message(e)}}}><Text style={styles.cameraAccessButtonText}>Allow camera access</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.cameraAccessButton} onPress={()=>Linking.openSettings()}><Text style={styles.cameraAccessButtonText}>Open Settings</Text></TouchableOpacity>
+      </View> : <CameraView ref={cameraRef} style={styles.cameraPreview} facing={cameraFacing} flash={cameraFlash} mode="picture" />}
+      {cameraPermission?.granted && !cameraPermissionDenied && <View style={styles.cameraBottomBar}>
         <TouchableOpacity accessibilityRole="checkbox" accessibilityState={{checked:cameraSaveToPhotos}} onPress={()=>setCameraSaveToPhotos(x=>!x)} style={styles.cameraSaveRow}><Ionicons name={cameraSaveToPhotos?'checkbox':'square-outline'} color="#fff" size={21}/><Text style={styles.cameraSaveText}>Save to Photos</Text></TouchableOpacity>
         <View style={styles.cameraShutterRow}>
           <TouchableOpacity accessibilityLabel="Switch camera" onPress={()=>setCameraFacing(x=>x==='back'?'front':'back')} style={styles.cameraIconButton}><Ionicons name="camera-reverse-outline" size={28} color="#fff"/></TouchableOpacity>
           <TouchableOpacity accessibilityLabel="Take photo" disabled={cameraTakingPhoto} onPress={captureCameraPhoto} style={styles.cameraShutter}>{cameraTakingPhoto ? <ActivityIndicator color="#222"/> : <View style={styles.cameraShutterInner}/>}</TouchableOpacity>
           <View style={styles.cameraIconButton}/>
         </View>
-      </View>
+      </View>}
     </View>}
     {roastPopup && <View pointerEvents="box-none" style={[
       styles.roastFloat,
@@ -851,6 +889,17 @@ const styles = StyleSheet.create({
   roastFloatBubble:{backgroundColor:'#242730',paddingHorizontal:16,paddingVertical:14,borderRadius:17,borderWidth:1,borderColor:'#454954',shadowColor:'#000',shadowOffset:{width:0,height:5},shadowOpacity:0.18,shadowRadius:10,elevation:6},
   roastFloatEyebrow:{color:'#A9B0BC',fontSize:10,fontWeight:'850',letterSpacing:0.75,marginBottom:5},
   roastFloatText:{color:'#FFFFFF',fontSize:15,fontWeight:'800',lineHeight:21},
+  notificationDot:{position:'absolute',top:3,right:3,width:9,height:9,borderRadius:5,backgroundColor:RED},
+  cameraDeniedSlash:{position:'absolute',top:19,left:3,width:35,height:3,backgroundColor:RED,transform:[{rotate:'-45deg'}]},
+  cameraNoAccess:{flex:1,alignItems:'center',justifyContent:'center',padding:20},
+  cameraBan:{position:'absolute',top:'35%',left:'50%'},
+  cameraAccessTitle:{color:'#fff',fontSize:22,fontWeight:'800',marginTop:25},
+  cameraAccessText:{color:'#ccc',textAlign:'center',marginTop:10,marginBottom:15},
+  cameraAccessButton:{backgroundColor:'#30343d',borderRadius:12,padding:14,minWidth:195,alignItems:'center',marginTop:9},
+  cameraAccessButtonText:{color:'#fff',fontWeight:'800'},
+  voiceControls:{paddingHorizontal:20,paddingVertical:12,gap:8},
+  voiceAction:{flexDirection:'row',alignItems:'center',gap:8,padding:12,backgroundColor:'#F1F2F5',borderRadius:12},
+  voiceText:{fontSize:14,color:'#252933',fontWeight:'700'},
   mediaActions:{flexDirection:'row',gap:10,marginHorizontal:20,marginVertical:8},
   mediaAction:{flex:1,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,paddingVertical:13,borderRadius:12,backgroundColor:'#F1F2F5'},
   mediaActionText:{fontWeight:'700',color:'#252A34',fontSize:13},
