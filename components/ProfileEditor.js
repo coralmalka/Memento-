@@ -114,6 +114,7 @@ export default function ProfileEditor({ profile, user, supabase, onCancel, onSav
       <View style={ui.previewGlow}/>
       <View style={ui.previewKickerRow}><View style={ui.previewDot}/><Text style={ui.previewKicker}>LIVE PROFILE PREVIEW</Text></View>
       <View style={ui.previewIdentity}>
+        <Ionicons name="person-circle-outline" size={67} color="#FFFFFF" />
         <View style={{flex:1}}><Text numberOfLines={1} style={ui.previewName}>{previewName}</Text><Text numberOfLines={1} style={ui.previewHandle}>@{normalizedHandle || 'username'}</Text><Text style={ui.previewCategory}>{category}{trimmed(pronouns) ? ' · '+trimmed(pronouns) : ''}</Text></View>
       </View>
       {!!trimmed(bio) && <Text style={ui.previewBio} numberOfLines={3}>{bio}</Text>}
