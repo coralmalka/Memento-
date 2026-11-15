@@ -919,7 +919,63 @@ export default function App() {
         <Text style={styles.section}>Select archived stories · {editorStoryIds.length} selected</Text><View style={styles.grid}>{archive.map(s=><TouchableOpacity key={s.id} style={styles.tile} onPress={()=>{setEditorStoryIds(old=>old.includes(s.id)?old.filter(id=>id!==s.id):[...old,s.id]);if(!editorCoverPath)setEditorCoverPath(s.image_path);}}><Photo uri={s.image_url} style={[styles.tileImage,editorStoryIds.includes(s.id)&&{borderWidth:4,borderColor:RED}]}/><Text style={styles.tiny}>{editorStoryIds.includes(s.id)?'✓ Selected':'Tap to add'}</Text><Text style={styles.action} onPress={()=>setEditorCoverPath(s.image_path)}>Use as cover</Text></TouchableOpacity>)}</View>
         <Button title={busy?'Saving…':'Save collection'} disabled={busy} onPress={saveCollection}/>{editor!=='new'&&<Button secondary title="Delete collection" onPress={()=>deleteCollection(editor)}/>}<Button secondary title="Cancel" onPress={()=>{setEditor(null);setTab('profile');}}/>
       </>}
-      {tab==='view' && viewer && <><Text style={styles.pageTitle}>{currentCollection?.title||'Story'}</Text><OriginalFrame uri={viewStory?.image_url}/>{!!viewStory?.location_label && <Text style={styles.locationText}>⌖ {viewStory.location_label}</Text>}<MusicDisplay item={viewStory}/><HashtagText style={styles.caption} onHashtag={searchTag}>{viewStory?.caption}</HashtagText>{currentCollection&&<><Text style={styles.note}>{(viewer.index||0)+1} / {selectedStories.length}</Text><View style={styles.row}><Button secondary title="← Previous" onPress={()=>setViewer({...viewer,index:Math.max(0,(viewer.index||0)-1)})}/><Button secondary title="Next →" onPress={()=>setViewer({...viewer,index:Math.min(selectedStories.length-1,(viewer.index||0)+1)})}/></View><Button secondary title="Share collection" onPress={()=>Share.share({message:`See my ${currentCollection.title} collection on Memento!`,title:currentCollection.title})}/></>}{viewer.own&&<Button secondary title="Delete story" onPress={()=>deleteStory(viewStory.id)}/>}<Button title="Close" onPress={()=>{setViewer(null);setTab('profile');}}/></>}
+      {tab==='view' && viewer && <>
+        <Text style={styles.pageTitle}>{currentCollection?.title||'Story'}</Text>
+        {!!viewStory && <>
+          <OriginalFrame uri={viewStory.image_url}/>
+          {!!viewStory.location_label && <Text style={styles.locationText}>⌖ {viewStory.location_label}</Text>}
+          <MusicDisplay item={viewStory}/>
+          <HashtagText style={styles.caption} onHashtag={searchTag}>{viewStory.caption}</HashtagText>
+          <View style={styles.storyActionBar}>
+            {storyIsActive && <TouchableOpacity accessibilityLabel="Like story" style={styles.storyIconButton} disabled={busy} onPress={()=>toggleStoryLike(viewStory)}>
+              <Ionicons name={storyLikes.some(x=>x.story_id===viewStory.id&&x.user_id===me)?'heart':'heart-outline'} size={27} color={storyLikes.some(x=>x.story_id===viewStory.id&&x.user_id===me)?RED:'#242933'}/>
+              <Text style={styles.storyActionLabel}>Like</Text>
+            </TouchableOpacity>}
+            {storyIsActive && (viewStory.author_id===me || storyOwnerSettings.allow_story_reshares!==false) && <TouchableOpacity accessibilityLabel="Share story" style={styles.storyIconButton} onPress={()=>shareOptions('story',viewStory)}>
+              <Ionicons name="paper-plane-outline" size={25} color="#242933"/><Text style={styles.storyActionLabel}>Share</Text>
+            </TouchableOpacity>}
+            {viewStory.author_id===me && <TouchableOpacity accessibilityLabel="Story insights" style={styles.storyIconButton} onPress={()=>setInsightsTarget({kind:'story',item:viewStory})}>
+              <Ionicons name="stats-chart-outline" size={25} color="#242933"/><Text style={styles.storyActionLabel}>Insights</Text>
+            </TouchableOpacity>}
+          </View>
+          {viewStory.author_id===me && <TouchableOpacity style={styles.insightsLink} onPress={()=>setInsightsTarget({kind:'story',item:viewStory})}>
+            <Ionicons name="eye-outline" color="#242933" size={17}/>
+            <Text style={styles.insightsLinkText}>{storyViews.filter(x=>x.story_id===viewStory.id).length} viewers · {storyLikes.filter(x=>x.story_id===viewStory.id).length} likes · {viewStory.share_count||0} shares · View insights</Text>
+          </TouchableOpacity>}
+          {storyIsActive && canReplyToStory && <View style={styles.storyReplyBox}>
+            <Text style={styles.storyReplyTitle}>Reply privately to @{username(profiles.find(x=>x.id===viewStory.author_id))}</Text>
+            <TextInput style={styles.storyReplyInput} placeholder="Write a reply…" placeholderTextColor="#6E7686" value={storyReplyDraft} onChangeText={setStoryReplyDraft} multiline maxLength={1000}/>
+            <TouchableOpacity style={styles.storyReplySend} disabled={!storyReplyDraft.trim()||busy} onPress={()=>sendStoryReply(viewStory)}>
+              <Ionicons name="send" size={18} color="#fff"/><Text style={styles.storyReplySendText}>Send reply</Text>
+            </TouchableOpacity>
+          </View>}
+        </>}
+        {currentCollection && <>
+          <Text style={styles.note}>{(viewer.index||0)+1} / {selectedStories.length}</Text>
+          <View style={styles.row}><Button secondary title="← Previous" onPress={()=>setViewer({...viewer,index:Math.max(0,(viewer.index||0)-1)})}/><Button secondary title="Next →" onPress={()=>setViewer({...viewer,index:Math.min(selectedStories.length-1,(viewer.index||0)+1)})}/></View>
+        </>}
+        {!!viewStory && viewStory.author_id===me && <Button secondary title="Delete story" onPress={()=>deleteStory(viewStory.id)}/>}
+        <Button secondary title="Close" onPress={()=>{setViewer(null);setStoryReplyDraft('');setTab('profile');}}/>
+      </>}
+      {tab==='postDetail' && <>
+        <TouchableOpacity onPress={()=>goTab('profile')} style={styles.insightsLink}><Ionicons name="arrow-back" size={20} color="#252933"/><Text style={styles.insightsLinkText}>Back to profile</Text></TouchableOpacity>
+        {detailPost ? <>
+          <TouchableOpacity onPress={()=>navigateProfile(detailPost.author_id)} style={styles.postHeading}><ProfileThumb person={profiles.find(x=>x.id===detailPost.author_id)}/><Text style={styles.postHandle}>@{username(profiles.find(x=>x.id===detailPost.author_id))}</Text></TouchableOpacity>
+          <OriginalFrame uri={detailPost.image_url}/>
+          <HashtagText style={styles.caption} onHashtag={searchTag}>{detailPost.caption}</HashtagText>
+          <MusicDisplay item={detailPost}/>
+          <View style={styles.storyActionBar}>
+            <TouchableOpacity style={styles.storyIconButton} onPress={()=>likePost(detailPost.id)} disabled={busy}>
+              <Ionicons name={likes.some(x=>x.post_id===detailPost.id&&x.user_id===me)?'heart':'heart-outline'} size={26} color={likes.some(x=>x.post_id===detailPost.id&&x.user_id===me)?RED:'#242933'}/>
+              <Text style={styles.storyActionLabel}>Like</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.storyIconButton} onPress={()=>shareOptions('post',detailPost)}><Ionicons name="paper-plane-outline" color="#242933" size={26}/><Text style={styles.storyActionLabel}>Share</Text></TouchableOpacity>
+            {detailPost.author_id===me && <TouchableOpacity style={styles.storyIconButton} onPress={()=>setInsightsTarget({kind:'post',item:detailPost})}><Ionicons name="stats-chart-outline" size={26} color="#242933"/><Text style={styles.storyActionLabel}>Insights</Text></TouchableOpacity>}
+          </View>
+          <Text style={styles.engagement}>{accountSettings.hide_like_counts?'Likes hidden':likes.filter(x=>x.post_id===detailPost.id).length+' likes'} · {comments.filter(x=>x.post_id===detailPost.id).length} comments · {detailPost.share_count||0} shares</Text>
+        </> : <Text style={styles.emptyInline}>Post unavailable.</Text>}
+      </>}
+
       {tab==='editProfile' && profileEdit && <ProfileEditor key={me} profile={mine} user={session.user} supabase={supabase}
         onCancel={()=>{setProfileEdit(false);setTab('profile');setSeenProfile(me);}}
         onSaved={updated=>{setProfiles(old=>old.map(p=>p.id===me?{...p,...updated}:p));setProfileEdit(false);setSeenProfile(me);setTab('profile');load();}}/>}
@@ -1003,6 +1059,14 @@ const styles = StyleSheet.create({
   tiny:{fontSize:11,color:'#8C929E',marginTop:5,textAlign:'center'},action:{fontSize:13,color:RED,marginHorizontal:20,marginVertical:10,fontWeight:'800'},storyPicker:{height:420,margin:20,borderRadius:14},
   dmMessage:{alignSelf:'flex-start',maxWidth:'85%',backgroundColor:'#F1F2F5',marginHorizontal:20,marginVertical:5,padding:14,borderRadius:17},dmMine:{alignSelf:'flex-end',backgroundColor:'#FFE0E5'},dmText:{fontSize:14,color:'#242933'},dmTime:{fontSize:10,color:'#858B98',marginTop:6},
   dmEmpty:{alignItems:'center',paddingHorizontal:35,paddingTop:90},dmEmptyIcon:{fontSize:45,color:'#B8BDC7'},dmEmptyTitle:{fontSize:18,fontWeight:'800',color:'#252933',marginTop:15},dmEmptyDescription:{fontSize:13,color:'#9297A3',lineHeight:20,textAlign:'center',marginTop:8},
+  storyActionBar:{flexDirection:'row',alignItems:'center',justifyContent:'space-evenly',paddingTop:17,paddingBottom:9,paddingHorizontal:20},
+  storyIconButton:{minWidth:78,alignItems:'center',gap:6,padding:9},
+  storyActionLabel:{fontSize:12,color:'#303541',fontWeight:'850'},
+  storyReplyBox:{marginHorizontal:17,marginTop:22,padding:14,backgroundColor:'#F1F2F5',borderRadius:17,gap:10},
+  storyReplyTitle:{fontSize:13,fontWeight:'900',color:'#272C35'},
+  storyReplyInput:{backgroundColor:'#fff',borderWidth:1,borderColor:'#D7DBE2',padding:12,borderRadius:11,minHeight:60,fontSize:14,color:'#242933'},
+  storyReplySend:{flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,backgroundColor:'#252A34',paddingVertical:13,borderRadius:12},
+  storyReplySendText:{fontSize:13,fontWeight:'900',color:'#fff'},
   insightsLink:{flexDirection:'row',alignItems:'center',gap:7,paddingHorizontal:17,paddingTop:11},
   insightsLinkText:{fontSize:12,fontWeight:'900',color:'#252933'},
   miniAction:{marginHorizontal:20,marginVertical:5,paddingVertical:13,paddingHorizontal:14,borderRadius:12,backgroundColor:'#F4F5F7'},miniActionText:{fontSize:13,fontWeight:'700',color:'#2D3340'},shareSheet:{backgroundColor:'#fff6f8',borderWidth:1,borderColor:'#F3BEC7',borderRadius:15,margin:12,padding:10},engagement:{fontSize:12,fontWeight:'800',marginHorizontal:17,marginTop:9,color:'#363B44'},locationText:{fontSize:12,color:'#626A78',marginHorizontal:17,marginTop:8},musicLink:{fontSize:13,color:RED,marginHorizontal:17,marginTop:9,fontWeight:'700'},commentsBox:{paddingVertical:10},commentLine:{marginHorizontal:20,fontSize:13,lineHeight:20,marginVertical:3,color:'#30333A'},commentField:{marginHorizontal:20,borderWidth:1,borderColor:'#DDD',borderRadius:9,padding:11,marginTop:10},choiceRow:{flexDirection:'row',flexWrap:'wrap',alignItems:'center'},
